@@ -3,12 +3,12 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Camera, User as UserIcon, Check } from "lucide-react"
+import { Camera } from "lucide-react"
 import { authService } from "@/lib/auth-service"
 import type { User } from "@/lib/users-service"
 
@@ -66,77 +66,101 @@ export default function ProfileModal({ isOpen, onClose, user, onUpdate }: Profil
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <UserIcon className="h-5 w-5 text-green-600" />
-            Editar Perfil
-          </DialogTitle>
-        </DialogHeader>
+      <DialogContent showCloseButton={false} className="sm:max-w-md p-0 overflow-hidden sm:rounded-2xl border-0 shadow-lg" aria-describedby={undefined}>
+        <div className="p-4 border-b border-[#F2F2F2] bg-white flex justify-between items-center relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-[#76BA1B]/5 to-transparent pointer-events-none" />
+          <div className="relative z-10">
+            <h2 className="text-lg font-bold text-[#1E5128] font-montserrat">Editar Perfil</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Atualize suas informações pessoais</p>
+          </div>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {/* Avatar Preview */}
-          <div className="flex flex-col items-center gap-3 py-2">
-            <Avatar className="w-24 h-24 border-4 border-white shadow-md ring-2 ring-green-500/20">
-              <AvatarImage src={formData.avatar || "/placeholder-user.png"} alt={formData.name} />
-              <AvatarFallback className="bg-green-100 text-green-700 text-2xl font-bold">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-            <p className="text-xs text-muted-foreground">Preview da foto do perfil</p>
+          <div className="flex flex-col items-center gap-3">
+            <div className="relative">
+              <Avatar className="w-20 h-20 border-4 border-white shadow-md ring-2 ring-[#76BA1B]/20 ring-offset-1">
+                <AvatarImage src={formData.avatar || "/placeholder-user.png"} alt={formData.name} />
+                <AvatarFallback className="bg-[#76BA1B] text-white text-xl font-bold font-montserrat">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <div className="absolute bottom-0 right-0 bg-white p-1 rounded-full shadow-sm border border-[#F2F2F2]">
+                <Camera className="w-4 h-4 text-[#76BA1B]" />
+              </div>
+            </div>
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Preview da Foto</p>
           </div>
 
-          {/* Avatar URL Field */}
-          <div className="space-y-2">
-            <Label htmlFor="avatar">URL da Foto</Label>
-            <Input
-              id="avatar"
-              type="url"
-              value={formData.avatar}
-              onChange={(e) => setFormData({ ...formData, avatar: e.target.value })}
-              placeholder="https://exemplo.com/foto.jpg"
-            />
-          </div>
+          <div className="space-y-4">
+            {/* Avatar URL Field */}
+            <div className="space-y-1.5">
+              <Label htmlFor="avatar" className="text-xs font-semibold text-[#1E5128] pl-1">URL da Foto</Label>
+              <Input
+                id="avatar"
+                type="url"
+                value={formData.avatar}
+                onChange={(e) => setFormData({ ...formData, avatar: e.target.value })}
+                placeholder="https://exemplo.com/foto.jpg"
+                className="h-11 bg-[#F2F2F2]/50 border-transparent hover:bg-[#F2F2F2] focus:bg-white focus:border-[#76BA1B] focus:ring-[#76BA1B]/20 transition-all rounded-xl text-sm shadow-none"
+              />
+            </div>
 
-          {/* Name Field */}
-          <div className="space-y-2">
-            <Label htmlFor="name">Nome</Label>
-            <Input
-              id="name"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              required
-            />
-          </div>
+            {/* Name Field */}
+            <div className="space-y-1.5">
+              <Label htmlFor="name" className="text-xs font-semibold text-[#1E5128] pl-1">Nome Completo</Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
+                className="h-11 bg-[#F2F2F2]/50 border-transparent hover:bg-[#F2F2F2] focus:bg-white focus:border-[#76BA1B] focus:ring-[#76BA1B]/20 transition-all rounded-xl text-sm shadow-none font-medium"
+              />
+            </div>
 
-          {/* Email Field */}
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              required
-            />
-          </div>
+            {/* Email Field */}
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-xs font-semibold text-[#1E5128] pl-1">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                required
+                className="h-11 bg-[#F2F2F2]/50 border-transparent hover:bg-[#F2F2F2] focus:bg-white focus:border-[#76BA1B] focus:ring-[#76BA1B]/20 transition-all rounded-xl text-sm shadow-none"
+              />
+            </div>
 
-          {/* Role (Read-only) */}
-          <div className="space-y-2">
-            <Label htmlFor="role">Função</Label>
-            <Input id="role" value={user.role} disabled className="bg-muted" />
+            {/* Role (Read-only) */}
+            <div className="space-y-1.5">
+              <Label htmlFor="role" className="text-xs font-semibold text-muted-foreground pl-1">Função no Sistema</Label>
+              <Input
+                id="role"
+                value={user.role}
+                disabled
+                className="h-11 bg-muted/50 border-transparent rounded-xl text-sm text-muted-foreground shadow-none cursor-not-allowed"
+              />
+            </div>
           </div>
 
           {/* Actions */}
-          <DialogFooter className="pt-4 border-t mt-6">
-            <Button type="button" variant="outline" onClick={onClose}>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              className="rounded-xl border-[#F2F2F2] hover:bg-[#F2F2F2] hover:text-[#1E5128] h-10 px-5 text-sm font-semibold"
+            >
               Cancelar
             </Button>
-            <Button type="submit" disabled={isLoading} className="bg-green-600 hover:bg-green-700">
-              <Check className="h-4 w-4 mr-2" />
-              {isLoading ? "Salvando..." : "Salvar"}
+            <Button
+              type="submit"
+              disabled={isLoading}
+              className="rounded-xl bg-[#76BA1B] hover:bg-[#65A017] text-white h-10 px-6 text-sm font-semibold shadow-sm"
+            >
+              {isLoading ? "Salvando..." : "Salvar Alterações"}
             </Button>
-          </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

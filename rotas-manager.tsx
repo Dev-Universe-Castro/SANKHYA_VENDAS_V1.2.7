@@ -1,1089 +1,1388 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import { authService } from "@/lib/auth-service"
-import "leaflet/dist/leaflet.css"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import React, { useState, useEffect, useMemo } from 'react'
+import {
+  Plus, Search, MapPin, Navigation, Clock, Calendar,
+  Check, X, Route, Trash2, Edit, AlertCircle, RefreshCw,
+  WifiOff, Cloud, CheckCircle2, Filter, ChevronDown, ChevronUp
+} from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
-  Route, MapPin, Clock, Calendar, Users, Plus, Play, Check, X,
-  RefreshCw, ChevronRight, Navigation, CheckCircle2, XCircle,
-  Edit, Trash2, Timer, DollarSign, Package, Target, WifiOff, Cloud
-} from "lucide-react"
-import { toast } from "sonner"
-import { format, subDays } from "date-fns"
-import { ptBR } from "date-fns/locale"
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogFooter
+} from "@/components/ui/dialog"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { format, parseISO, isSameDay, addDays } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
 import dynamic from 'next/dynamic'
-import { RotasSyncService, VisitaPendenteOffline } from "@/lib/rotas-sync"
-import { db } from "@/lib/client-db"
 
-const MapContainer = dynamic(() => import('react-leaflet').then(m => m.MapContainer), { ssr: false })
-const TileLayer = dynamic(() => import('react-leaflet').then(m => m.TileLayer), { ssr: false })
-const Marker = dynamic(() => import('react-leaflet').then(m => m.Marker), { ssr: false })
-const Popup = dynamic(() => import('react-leaflet').then(m => m.Popup), { ssr: false })
-const Polyline = dynamic(() => import('react-leaflet').then(m => m.Polyline), { ssr: false })
+const MapContainer = dynamic(() => import('react-leaflet').then(mod => mod.MapContainer), { ssr: false })
+const TileLayer = dynamic(() => import('react-leaflet').then(mod => mod.TileLayer), { ssr: false })
+const Marker = dynamic(() => import('react-leaflet').then(mod => mod.Marker), { ssr: false })
+const Popup = dynamic(() => import('react-leaflet').then(mod => mod.Popup), { ssr: false })
+const Polyline = dynamic(() => import('react-leaflet').then(mod => mod.Polyline), { ssr: false })
 
-interface Rota {
-  CODROTA: number
-  ID_EMPRESA: number
-  DESCRICAO: string
-  CODVEND: number
-  NOMEVENDEDOR?: string
-  TIPO_RECORRENCIA: string
-  DIAS_SEMANA?: string
-  INTERVALO_DIAS?: number
-  DATA_INICIO?: string
-  DATA_FIM?: string
-  ATIVO: string
-  parceiros?: RotaParceiro[]
-}
+import 'leaflet/dist/leaflet.css'
+import L from 'leaflet'
 
-interface RotaParceiro {
-  CODROTAPARC?: number
-  CODROTA: number
-  CODPARC: number
-  NOMEPARC?: string
-  ORDEM: number
-  LATITUDE?: number
-  LONGITUDE?: number
-  TEMPO_ESTIMADO?: number
-  ENDERECO?: string
-  CIDADE?: string
-  UF?: string
-}
-
-interface Visita {
-  CODVISITA: number
-  CODROTA?: number
-  CODPARC: number
-  NOMEPARC?: string
-  CODVEND: number
-  NOMEVENDEDOR?: string
-  DATA_VISITA: string
-  HORA_CHECKIN?: string
-  HORA_CHECKOUT?: string
-  LAT_CHECKIN?: number
-  LNG_CHECKIN?: number
-  LAT_CHECKOUT?: number
-  LNG_CHECKOUT?: number
-  STATUS: string
-  OBSERVACAO?: string
-  PEDIDO_GERADO: string
-  NUNOTA?: number
-  VLRTOTAL?: number
-  duracao?: number
-  NOME_ROTA?: string
-}
-
-interface Estatisticas {
-  totalVisitas: number
-  visitasConcluidas: number
-  visitasCanceladas: number
-  visitasEmAndamento: number
-  pedidosGerados: number
-  valorTotalPedidos: number
-  tempoMedioVisita: number
-  taxaConversao: number
-  taxaConclusao: number
+if (typeof window !== 'undefined') {
+  delete (L.Icon.Default.prototype as any)._getIconUrl
+  L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
+    iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+    shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+  })
 }
 
 interface Parceiro {
   CODPARC: number
   NOMEPARC: string
-  ENDERECO?: string
   CIDADE?: string
   UF?: string
+  ENDERECO?: string
+  NUMERO?: string
   LATITUDE?: number
   LONGITUDE?: number
+  CGC_CPF?: string
+  INSCESTAD?: string
+  TIPPESSOA?: string
+  RAZAOSOCIAL?: string
 }
 
-const diasSemanaLabels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+interface RotaParceiro extends Parceiro {
+  CODROTAPARC: number
+  ORDEM: number
+}
+
+interface Visita {
+  CODVISITA: number
+  CODPARC: number
+  NOMEPARC: string
+  DHVISITA: string
+  STATUS: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'CANCELADA' | 'CHECKIN'
+  CIDADE?: string
+  UF?: string
+  ENDERECO?: string
+  NUMERO?: string
+  LATITUDE?: number
+  LONGITUDE?: number
+  HORA_CHECKIN?: string
+  HORA_CHECKOUT?: string
+  CODROTA?: number
+  NOMEVENDEDOR?: string
+  duracao?: number
+  PEDIDO_GERADO?: string
+  NUNOTA?: number
+  CGC_CPF?: string
+  IDENTINSCESTAD?: string
+  TIPPESSOA?: string
+  RAZAOSOCIAL?: string
+}
+
+interface Rota {
+  CODROTA: number
+  DESCRICAO: string
+  TIPO_RECORRENCIA: string
+  INTERVALO_DIAS?: number
+  DATA_INICIO?: string
+  DATA_FIM?: string
+  DIAS_SEMANA?: string
+  NOMEVENDEDOR?: string
+  parceiros: RotaParceiro[]
+}
+
+import PedidoVendaRapido from './pedido-venda-rapido'
+
+import { toast } from "sonner"
+import { useToast } from "@/hooks/use-toast"
 
 export default function RotasManager() {
-  const [currentUser, setCurrentUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('rotas')
-  const [isOnline, setIsOnline] = useState(true)
-  const [visitasPendentesCount, setVisitasPendentesCount] = useState(0)
-  
+  const { toast: uiToast } = useToast()
+  const [modalPedidoRapido, setModalPedidoRapido] = useState(false)
   const [rotas, setRotas] = useState<Rota[]>([])
   const [visitas, setVisitas] = useState<Visita[]>([])
-  const [estatisticas, setEstatisticas] = useState<Estatisticas | null>(null)
   const [parceirosDisponiveis, setParceirosDisponiveis] = useState<Parceiro[]>([])
-  
-  const [rotaSelecionada, setRotaSelecionada] = useState<Rota | null>(null)
-  const [visitaAtiva, setVisitaAtiva] = useState<Visita | null>(null)
-  const [visitaAtivaLocal, setVisitaAtivaLocal] = useState<VisitaPendenteOffline | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [isOnline, setIsOnline] = useState(true)
+  const [visitasPendentesCount, setVisitasPendentesCount] = useState(0)
+
   const [modalNovaRota, setModalNovaRota] = useState(false)
+  const [modalDetalhesRota, setModalDetalhesRota] = useState(false)
   const [modalCheckin, setModalCheckin] = useState(false)
   const [modalCheckout, setModalCheckout] = useState(false)
-  const [parceiroCheckin, setParceiroCheckin] = useState<RotaParceiro | null>(null)
-  
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+
+  const [modalMapaVisita, setModalMapaVisita] = useState(false)
+  const [visitaParaMapa, setVisitaParaMapa] = useState<Visita | null>(null)
+
+  const [rotaSelecionada, setRotaSelecionada] = useState<Rota | null>(null)
+  const [parceiroCheckin, setParceiroCheckin] = useState<Visita | RotaParceiro | null>(null)
+  const [visitaAtiva, setVisitaAtiva] = useState<Visita | null>(null)
+  const [isCheckingIn, setIsCheckingIn] = useState<number | null>(null)
+  const [bloquearAcoes, setBloquearAcoes] = useState(false)
+  const [modalAtividade, setModalAtividade] = useState(false)
+  const [modalAtalhoTarefa, setModalAtalhoTarefa] = useState(false)
+  const [novaAtividadeForm, setNovaAtividadeForm] = useState({
+    tipo: 'NOTA',
+    titulo: '',
+    descricao: '',
+    dataHora: format(new Date(), "yyyy-MM-dd'T'HH:mm")
+  })
+
+  const criarAtividadeVinculada = async () => {
+    try {
+      const res = await fetch('/api/leads/atividades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...novaAtividadeForm,
+          codParc: visitaAtiva?.CODPARC || (parceiroCheckin as any)?.CODPARC,
+          codRota: visitaAtiva?.CODROTA || rotaSelecionada?.CODROTA,
+          codVisita: visitaAtiva?.CODVISITA,
+          idEmpresa: 1
+        })
+      })
+      if (res.ok) {
+        setModalAtividade(false)
+        setNovaAtividadeForm({
+          tipo: 'NOTA',
+          titulo: '',
+          descricao: '',
+          dataHora: format(new Date(), "yyyy-MM-dd'T'HH:mm")
+        })
+        alert('Atividade registrada com sucesso!')
+      }
+    } catch (error) {
+      console.error('Erro ao criar atividade:', error)
+    }
+  }
+
+  useEffect(() => {
+    setBloquearAcoes(!!visitaAtiva)
+
+    // Se temos uma visita ativa e viemos pelo redirecionamento, abre o modal
+    if (visitaAtiva && typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('openAction') === 'checkout') {
+        setModalCheckout(true)
+        // Limpa a URL sem recarregar a página
+        window.history.replaceState({}, '', window.location.pathname)
+      }
+    }
+  }, [visitaAtiva])
+
+  const [filtroDataInicio, setFiltroDataInicio] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [filtroDataFim, setFiltroDataFim] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [buscaParceiroVisita, setBuscaParceiroVisita] = useState('')
+
+  // Nova Rota Form State
   const [novaRotaForm, setNovaRotaForm] = useState({
     descricao: '',
+    codVend: '',
     tipoRecorrencia: 'SEMANAL',
     diasSemana: [] as number[],
     intervaloDias: 7,
-    dataInicio: '',
-    dataFim: '',
-    parceiros: [] as { codParc: number; ordem: number; latitude?: number; longitude?: number }[]
+    dataInicio: format(new Date(), 'yyyy-MM-dd'),
+    dataFim: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+    parceiros: [] as { codParc: number; ordem: number; latitude?: number; longitude?: number }[],
+    adicionarCalendario: false
   })
-  
+
   const [checkoutForm, setCheckoutForm] = useState({
     observacao: '',
     pedidoGerado: false,
     nunota: '',
     vlrTotal: ''
   })
-  
-  const [buscaParceiro, setBuscaParceiro] = useState('')
-  
-  const [filtroData, setFiltroData] = useState({
-    dataInicio: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
-    dataFim: format(new Date(), 'yyyy-MM-dd')
-  })
 
-  const [isMobile, setIsMobile] = useState(false)
+  const [buscaParceiro, setBuscaParceiro] = useState('')
   const [localizacaoAtual, setLocalizacaoAtual] = useState<{ lat: number; lng: number } | null>(null)
 
+  const [vendedores, setVendedores] = useState<any[]>([])
+  const [criandoRota, setCriandoRota] = useState(false)
+
   useEffect(() => {
-    const user = authService.getCurrentUser()
-    if (user) {
-      setCurrentUser(user)
+    fetchDados()
+    fetchVendedores()
+    setIsOnline(window.navigator.onLine)
+
+    // Verificar se há uma ação pendente via URL
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('openAction') === 'checkout') {
+        // O fetchDados já deve carregar a visitaAtiva, então o modal abrirá via useEffect abaixo
+      }
     }
-    setIsMobile(window.innerWidth < 768)
-    setIsOnline(navigator.onLine)
-    
-    const handleResize = () => setIsMobile(window.innerWidth < 768)
-    const handleOnline = () => {
-      setIsOnline(true)
-      RotasSyncService.processarFilaVisitas()
-      RotasSyncService.sincronizarRotas()
-    }
+
+    const handleOnline = () => setIsOnline(true)
     const handleOffline = () => setIsOnline(false)
-    
-    window.addEventListener('resize', handleResize)
+
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
-    
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setLocalizacaoAtual({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => console.warn('Erro ao obter localização:', err)
+        (err) => console.error('Erro ao obter localização:', err)
       )
     }
-    
+
     return () => {
-      window.removeEventListener('resize', handleResize)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
 
-  useEffect(() => {
-    if (currentUser) {
-      carregarDados()
-    }
-  }, [currentUser])
-
-  const carregarDados = async () => {
-    setLoading(true)
+  const fetchDados = async () => {
     try {
-      await Promise.all([
-        carregarRotas(),
-        carregarVisitas(),
-        carregarEstatisticas(),
-        carregarParceiros()
+      setLoading(true)
+      console.log('🔄 Buscando dados de rotas e visitas...')
+      const [rotasRes, parceirosRes, visitasRes] = await Promise.all([
+        fetch('/api/rotas'),
+        fetch('/api/sankhya/parceiros?limit=100'),
+        fetch('/api/rotas/visitas')
       ])
+
+      if (rotasRes.ok) {
+        const data = await rotasRes.json()
+        console.log('✅ Rotas carregadas:', data.length)
+        setRotas(data)
+      }
+
+      if (parceirosRes.ok) {
+        const data = await parceirosRes.json()
+        setParceirosDisponiveis(data.parceiros || [])
+      }
+
+      if (visitasRes.ok) {
+        const data = await visitasRes.json()
+        console.log('✅ Visitas carregadas bruto:', data.length, data)
+        // Mapear campos da API para os campos esperados pelo componente
+        const mappedData = data.map((v: any) => ({
+          ...v,
+          // Se a API retorna DATA_VISITA, mapeia para DHVISITA se estiver vazio
+          DHVISITA: v.DHVISITA || v.DATA_VISITA || v.DTCAD
+        }))
+        setVisitas(mappedData)
+        const ativa = mappedData.find((v: Visita) => v.STATUS === 'EM_ANDAMENTO' || v.STATUS === 'CHECKIN')
+        if (ativa) setVisitaAtiva(ativa)
+      } else {
+        console.error('❌ Erro ao buscar visitas:', visitasRes.status)
+      }
     } catch (error) {
-      console.error('Erro ao carregar dados:', error)
+      console.error('❌ Erro ao carregar dados:', error)
     } finally {
       setLoading(false)
     }
   }
 
-  const carregarRotas = async () => {
+  const fetchVendedores = async () => {
     try {
-      if (navigator.onLine) {
-        const response = await fetch('/api/rotas')
-        if (response.ok) {
-          const data = await response.json()
-          setRotas(Array.isArray(data) ? data : [])
-          await RotasSyncService.sincronizarRotas()
-        }
-      } else {
-        const rotasOffline = await RotasSyncService.getRotasOffline()
-        setRotas(rotasOffline as any)
+      const res = await fetch('/api/vendedores?tipo=vendedores')
+      if (res.ok) {
+        const data = await res.json()
+        setVendedores(Array.isArray(data) ? data : (data.vendedores || []))
       }
     } catch (error) {
-      console.error('Erro ao carregar rotas, tentando offline:', error)
-      const rotasOffline = await RotasSyncService.getRotasOffline()
-      setRotas(rotasOffline as any)
+      console.error('Erro ao buscar vendedores:', error)
     }
-  }
-
-  const carregarVisitas = async () => {
-    try {
-      const codVend = currentUser?.CODVEND || currentUser?.codVend
-      
-      const visitaLocal = await RotasSyncService.getVisitaAtivaLocal(codVend)
-      setVisitaAtivaLocal(visitaLocal)
-      
-      const pendentes = await RotasSyncService.getVisitasPendentes()
-      setVisitasPendentesCount(pendentes.length)
-      
-      if (navigator.onLine) {
-        const params = new URLSearchParams({
-          dataInicio: filtroData.dataInicio,
-          dataFim: filtroData.dataFim
-        })
-        const response = await fetch(`/api/rotas/visitas?${params}`)
-        if (response.ok) {
-          const data = await response.json()
-          setVisitas(Array.isArray(data) ? data : [])
-          
-          const ativa = data.find((v: Visita) => v.STATUS === 'CHECKIN')
-          setVisitaAtiva(ativa || null)
-        }
-      } else {
-        const visitasOffline = await RotasSyncService.getVisitasOffline()
-        setVisitas(visitasOffline as any)
-      }
-    } catch (error) {
-      console.error('Erro ao carregar visitas:', error)
-      const visitasOffline = await RotasSyncService.getVisitasOffline()
-      setVisitas(visitasOffline as any)
-    }
-  }
-
-  const carregarEstatisticas = async () => {
-    try {
-      const params = new URLSearchParams({
-        dataInicio: filtroData.dataInicio,
-        dataFim: filtroData.dataFim
-      })
-      const response = await fetch(`/api/rotas/estatisticas?${params}`)
-      if (response.ok) {
-        const data = await response.json()
-        setEstatisticas(data)
-      }
-    } catch (error) {
-      console.error('Erro ao carregar estatísticas:', error)
-    }
-  }
-
-  const carregarParceiros = async () => {
-    try {
-      const { OfflineDataService } = await import('@/lib/offline-data-service')
-      const parceiros = await OfflineDataService.getParceiros()
-      setParceirosDisponiveis(parceiros)
-    } catch (error) {
-      console.error('Erro ao carregar parceiros:', error)
-    }
-  }
-
-  const obterLocalizacao = (): Promise<{ lat: number; lng: number }> => {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error('Geolocalização não suportada'))
-        return
-      }
-      navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => reject(err),
-        { enableHighAccuracy: true, timeout: 10000 }
-      )
-    })
   }
 
   const criarRota = async () => {
     try {
-      const response = await fetch('/api/rotas', {
+      setCriandoRota(true)
+      const res = await fetch('/api/rotas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          descricao: novaRotaForm.descricao,
-          tipoRecorrencia: novaRotaForm.tipoRecorrencia,
-          diasSemana: novaRotaForm.tipoRecorrencia === 'SEMANAL' ? novaRotaForm.diasSemana.join(',') : null,
-          intervaloDias: novaRotaForm.tipoRecorrencia === 'INTERVALO' ? novaRotaForm.intervaloDias : null,
-          dataInicio: novaRotaForm.dataInicio || null,
-          dataFim: novaRotaForm.dataFim || null,
-          parceiros: novaRotaForm.parceiros
-        })
+        body: JSON.stringify(novaRotaForm)
       })
 
-      if (response.ok) {
-        toast.success('Rota criada com sucesso!')
+      if (res.ok) {
         setModalNovaRota(false)
+        fetchDados()
         setNovaRotaForm({
           descricao: '',
+          codVend: '',
           tipoRecorrencia: 'SEMANAL',
-          diasSemana: [],
+          diasSemana: [] as number[],
           intervaloDias: 7,
-          dataInicio: '',
-          dataFim: '',
-          parceiros: []
+          dataInicio: format(new Date(), 'yyyy-MM-dd'),
+          dataFim: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+          parceiros: [] as { codParc: number; ordem: number; latitude?: number; longitude?: number }[],
+          adicionarCalendario: false
         })
-        carregarRotas()
-      } else {
-        const error = await response.json()
-        toast.error(error.error || 'Erro ao criar rota')
       }
     } catch (error) {
-      toast.error('Erro ao criar rota')
+      console.error('Erro ao criar rota:', error)
+    } finally {
+      setCriandoRota(false)
+    }
+  }
+
+  const desativarRota = async (codRota: number) => {
+    if (!confirm('Deseja realmente desativar esta rota? Visitas pendentes e suas tarefas serão canceladas. Visitas já iniciadas ou concluídas serão mantidas.')) return
+    try {
+      const res = await fetch(`/api/rotas?codRota=${codRota}`, { method: 'DELETE' })
+      if (res.ok) {
+        fetchDados()
+        toast.success('Rota desativada com sucesso. Visitas pendentes foram canceladas.')
+      } else {
+        const errorData = await res.json()
+        toast.error(`Erro ao desativar rota: ${errorData.error}`)
+      }
+    } catch (error) {
+      console.error('Erro ao desativar rota:', error)
+      toast.error('Erro ao conectar ao servidor')
     }
   }
 
   const fazerCheckin = async () => {
     if (!parceiroCheckin) return
-    
+
+    // Determinar se estamos fazendo check-in em uma visita pré-agendada ou em um parceiro da rota
+    const isVisita = 'CODVISITA' in parceiroCheckin
+
     try {
-      let localizacao = { lat: 0, lng: 0 }
-      try {
-        localizacao = await obterLocalizacao()
-      } catch (err) {
-        console.warn('Não foi possível obter localização')
-      }
-      
-      const codVend = currentUser?.CODVEND || currentUser?.codVend
-      
-      const result = await RotasSyncService.fazerCheckinOffline({
-        codRota: rotaSelecionada?.CODROTA,
-        codParc: parceiroCheckin.CODPARC,
-        codVend,
-        latitude: localizacao.lat,
-        longitude: localizacao.lng
+      setIsCheckingIn(isVisita ? (parceiroCheckin as Visita).CODVISITA : (parceiroCheckin as RotaParceiro).CODROTAPARC)
+
+      console.log('🚀 Iniciando Check-in...', { action: 'checkin', parceiroCheckin });
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
+      const payload = isVisita
+        ? {
+          action: 'checkin',
+          codVisita: (parceiroCheckin as Visita).CODVISITA,
+          codParc: (parceiroCheckin as Visita).CODPARC,
+          latitude: localizacaoAtual?.lat,
+          longitude: localizacaoAtual?.lng
+        }
+        : {
+          action: 'checkin',
+          codParc: (parceiroCheckin as RotaParceiro).CODPARC,
+          codRota: rotaSelecionada?.CODROTA,
+          latitude: localizacaoAtual?.lat,
+          longitude: localizacaoAtual?.lng
+        }
+
+      const res = await fetch('/api/rotas/visitas', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          ...payload,
+          adicionarCalendario: novaRotaForm.adicionarCalendario
+        }),
+        signal: controller.signal
       })
 
-      if (result.success) {
+      clearTimeout(timeoutId);
+
+      const responseData = await res.json().catch((err) => {
+        console.error('❌ Erro ao parsear JSON da resposta:', err);
+        return { error: 'Resposta inválida do servidor (não é JSON)' };
+      })
+
+      if (res.ok) {
+        console.log('✅ Check-in realizado com sucesso:', responseData);
+        uiToast({
+          title: "Check-in realizado",
+          description: "Visita iniciada com sucesso.",
+        })
         setModalCheckin(false)
-        setParceiroCheckin(null)
-        carregarVisitas()
+        await fetchDados()
+      } else {
+        console.error('❌ Erro na API de Check-in:', res.status, responseData)
+        uiToast({
+          variant: "destructive",
+          title: "Erro no Check-in",
+          description: responseData.error || `Erro ${res.status} ao fazer check-in`,
+        })
       }
     } catch (error: any) {
-      toast.error('Erro ao fazer check-in: ' + error.message)
+      console.error('❌ Erro de conexão/rede no check-in:', error)
+      let errorMsg = "Erro de conexão ao tentar falar com o servidor. Verifique sua internet.";
+
+      if (error.name === 'AbortError') {
+        errorMsg = "A conexão com o servidor demorou muito tempo (timeout). Tente novamente.";
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+
+      uiToast({
+        variant: "destructive",
+        title: "Erro de Conexão",
+        description: errorMsg,
+      })
+    } finally {
+      setIsCheckingIn(null)
     }
   }
 
   const fazerCheckout = async () => {
-    if (!visitaAtiva && !visitaAtivaLocal) return
-    
+    if (!visitaAtiva) return
     try {
-      let localizacao = { lat: 0, lng: 0 }
-      try {
-        localizacao = await obterLocalizacao()
-      } catch (err) {
-        console.warn('Não foi possível obter localização')
+      console.log('🚀 Iniciando Check-out...', { action: 'checkout', codVisita: visitaAtiva.CODVISITA });
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
+      const payload = {
+        action: 'checkout',
+        codVisita: visitaAtiva.CODVISITA,
+        ...checkoutForm,
+        latitude: localizacaoAtual?.lat,
+        longitude: localizacaoAtual?.lng
       }
-      
-      const codVend = currentUser?.CODVEND || currentUser?.codVend
-      
-      const result = await RotasSyncService.fazerCheckoutOffline({
-        codVisita: visitaAtiva?.CODVISITA,
-        localVisitaId: visitaAtivaLocal?.localVisitaId,
-        codParc: visitaAtiva?.CODPARC || visitaAtivaLocal?.codParc || 0,
-        codVend,
-        latitude: localizacao.lat,
-        longitude: localizacao.lng,
-        observacao: checkoutForm.observacao,
-        pedidoGerado: checkoutForm.pedidoGerado,
-        nunota: checkoutForm.nunota ? parseInt(checkoutForm.nunota) : undefined,
-        vlrTotal: checkoutForm.vlrTotal ? parseFloat(checkoutForm.vlrTotal) : undefined
+
+      const res = await fetch('/api/rotas/visitas', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          ...payload,
+          adicionarCalendario: novaRotaForm.adicionarCalendario
+        }),
+        signal: controller.signal
       })
 
-      if (result.success) {
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        uiToast({
+          title: "Visita finalizada",
+          description: "Check-out realizado com sucesso.",
+        })
         setModalCheckout(false)
+        setVisitaAtiva(null) // Limpa o botão flutuante
+        setParceiroCheckin(null) // Limpa o parceiro em checkin
+        await fetchDados()
         setCheckoutForm({ observacao: '', pedidoGerado: false, nunota: '', vlrTotal: '' })
-        setVisitaAtiva(null)
-        setVisitaAtivaLocal(null)
-        carregarVisitas()
-        carregarEstatisticas()
+      } else {
+        const errorData = await res.json().catch(() => ({ error: 'Resposta inválida do servidor' }))
+        console.error('❌ Erro na API de Check-out:', errorData)
+        uiToast({
+          variant: "destructive",
+          title: "Erro no Check-out",
+          description: errorData.error || 'Erro desconhecido ao finalizar visita',
+        })
       }
     } catch (error: any) {
-      toast.error('Erro ao fazer check-out: ' + error.message)
-    }
-  }
+      console.error('Erro ao fazer check-out:', error)
+      let errorMsg = "Erro ao tentar finalizar visita. Verifique sua internet.";
 
-  const sincronizarVisitas = async () => {
-    if (!navigator.onLine) {
-      toast.error('Sem conexão com a internet')
-      return
-    }
-    await RotasSyncService.processarFilaVisitas()
-    carregarVisitas()
-    carregarEstatisticas()
-  }
-
-  const excluirRota = async (codRota: number) => {
-    if (!confirm('Tem certeza que deseja excluir esta rota?')) return
-    
-    try {
-      const response = await fetch(`/api/rotas?codRota=${codRota}`, { method: 'DELETE' })
-      if (response.ok) {
-        toast.success('Rota excluída!')
-        carregarRotas()
-      } else {
-        const error = await response.json()
-        toast.error(error.error || 'Erro ao excluir rota')
+      if (error.name === 'AbortError') {
+        errorMsg = "A conexão com o servidor demorou muito tempo (timeout).";
       }
-    } catch (error) {
-      toast.error('Erro ao excluir rota')
+
+      uiToast({
+        variant: "destructive",
+        title: "Erro de Conexão",
+        description: errorMsg,
+      })
     }
   }
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
+  const sincronizarVisitas = () => {
+    fetchDados()
   }
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case 'PENDENTE': return <Badge variant="outline" className="bg-slate-100 text-slate-600">Pendente</Badge>
       case 'CHECKIN':
-        return <Badge className="bg-yellow-500">Em Visita</Badge>
-      case 'CONCLUIDA':
-        return <Badge className="bg-green-500">Concluída</Badge>
-      case 'CANCELADA':
-        return <Badge className="bg-red-500">Cancelada</Badge>
-      default:
-        return <Badge className="bg-gray-500">Pendente</Badge>
+      case 'EM_ANDAMENTO': return <Badge className="bg-green-500 text-white border-none">Em Andamento</Badge>
+      case 'CONCLUIDA': return <Badge className="bg-green-600 text-white border-none">Concluída</Badge>
+      default: return <Badge variant="secondary">{status}</Badge>
     }
   }
 
-  const mapCenter = localizacaoAtual || { lat: -23.5505, lng: -46.6333 }
-  const rotaParceirosCoordenadas = rotaSelecionada?.parceiros
-    ?.filter(p => p.LATITUDE && p.LONGITUDE)
-    ?.map(p => [p.LATITUDE!, p.LONGITUDE!] as [number, number]) || []
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value)
+  }
+
+  const diasSemanaLabels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+  const mapCenter = useMemo(() => {
+    if (localizacaoAtual) return localizacaoAtual
+    if (rotaSelecionada?.parceiros?.[0]?.LATITUDE) {
+      return { lat: rotaSelecionada.parceiros[0].LATITUDE, lng: rotaSelecionada.parceiros[0].LONGITUDE }
+    }
+    return { lat: -23.5505, lng: -46.6333 }
+  }, [localizacaoAtual, rotaSelecionada])
+
+  const rotaParceirosCoordenadas = useMemo(() => {
+    return rotaSelecionada?.parceiros
+      ?.filter(p => p.LATITUDE && p.LONGITUDE)
+      ?.map(p => [p.LATITUDE!, p.LONGITUDE!] as [number, number]) || []
+  }, [rotaSelecionada])
+
+  const visitasFiltradas = useMemo(() => {
+    console.log('🔍 Filtrando visitas...', {
+      total: visitas.length,
+      inicio: filtroDataInicio,
+      fim: filtroDataFim,
+      busca: buscaParceiroVisita
+    })
+
+    const dataInicio = parseISO(filtroDataInicio)
+    const dataFim = parseISO(filtroDataFim)
+
+    // Ajustar dataFim para incluir o dia inteiro
+    dataFim.setHours(23, 59, 59, 999)
+    dataInicio.setHours(0, 0, 0, 0)
+
+    const filtradas = visitas.filter(v => {
+      if (!v.DHVISITA) return false
+
+      // Lidar com formatos diferentes de data (ISO ou Sankhya)
+      let dataVisitaStr = v.DHVISITA;
+      if (dataVisitaStr.includes(' ')) {
+        dataVisitaStr = dataVisitaStr.replace(' ', 'T');
+      }
+
+      const dataVisita = parseISO(dataVisitaStr)
+      if (isNaN(dataVisita.getTime())) {
+        console.warn('⚠️ Data inválida para visita:', v.DHVISITA);
+        return false;
+      }
+
+      const matchData = dataVisita >= dataInicio && dataVisita <= dataFim
+      const matchParceiro = !buscaParceiroVisita ||
+        v.NOMEPARC?.toLowerCase().includes(buscaParceiroVisita.toLowerCase()) ||
+        v.CODPARC?.toString().includes(buscaParceiroVisita)
+
+      return matchData && matchParceiro
+    })
+
+    console.log('✅ Visitas filtradas:', filtradas.length)
+    return filtradas
+  }, [visitas, filtroDataInicio, filtroDataFim, buscaParceiroVisita])
 
   if (loading && rotas.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600"></div>
+        <p className="text-sm font-medium text-muted-foreground">Carregando rotas...</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4 md:space-y-6 pb-24">
-      {!isOnline && (
-        <Card className="border-orange-500 bg-orange-50 dark:bg-orange-900/20">
-          <CardContent className="py-3">
-            <div className="flex items-center gap-2 text-orange-700 dark:text-orange-300">
-              <WifiOff className="h-5 w-5" />
-              <span className="font-medium">Modo Offline</span>
-              <span className="text-sm">- Dados locais sendo utilizados</span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {visitasPendentesCount > 0 && isOnline && (
-        <Card className="border-blue-500 bg-blue-50 dark:bg-blue-900/20">
-          <CardContent className="py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
-                <Cloud className="h-5 w-5" />
-                <span className="font-medium">{visitasPendentesCount} visita(s) pendente(s) de sincronização</span>
-              </div>
-              <Button onClick={sincronizarVisitas} size="sm" className="bg-blue-600 hover:bg-blue-700">
-                <RefreshCw className="h-4 w-4 mr-1" />
-                Sincronizar
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
-            <Route className="h-6 w-6 md:h-8 md:w-8 text-green-600" />
-            Rotas
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Gerencie suas rotas de visitas e acompanhe o progresso
-          </p>
-        </div>
-        <Button onClick={() => setModalNovaRota(true)} className="bg-green-600 hover:bg-green-700">
-          <Plus className="h-4 w-4 mr-2" />
-          {isMobile ? '' : 'Nova Rota'}
-        </Button>
+    <div className="flex flex-col h-full bg-transparent overflow-hidden scrollbar-hide">
+      {/* Header - Desktop */}
+      <div className="hidden md:block p-6 bg-transparent">
+        <h1 className="text-3xl font-bold tracking-tight text-[#1E5128]">Rotas</h1>
+        <p className="text-[#1E5128]/70 mt-1">
+          Gerencie suas rotas de visitas e acompanhe o progresso
+        </p>
       </div>
 
-      {(visitaAtiva || visitaAtivaLocal) && (
-        <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20">
-          <CardContent className="py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-yellow-500 flex items-center justify-center">
-                  <Navigation className="h-5 w-5 text-white animate-pulse" />
-                </div>
-                <div>
-                  <p className="font-semibold text-yellow-800 dark:text-yellow-200 flex items-center gap-2">
-                    Visita em Andamento
-                    {visitaAtivaLocal && !visitaAtiva && (
-                      <Badge variant="outline" className="text-xs bg-orange-100 text-orange-700">
-                        <WifiOff className="h-3 w-3 mr-1" />
-                        Offline
-                      </Badge>
-                    )}
-                  </p>
-                  <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                    {visitaAtiva?.NOMEPARC || parceirosDisponiveis.find(p => p.CODPARC === visitaAtivaLocal?.codParc)?.NOMEPARC || `Parceiro ${visitaAtivaLocal?.codParc}`}
-                  </p>
-                </div>
-              </div>
-              <Button onClick={() => setModalCheckout(true)} className="bg-green-600 hover:bg-green-700">
-                <Check className="h-4 w-4 mr-2" />
-                Check-out
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Header - Mobile */}
+      <div className="md:hidden px-4 py-4 bg-transparent border-b border-black/5">
+        <h1 className="text-xl font-bold text-[#1E5128]">Rotas</h1>
+        <p className="text-sm text-[#1E5128]/70 mt-1">
+          Gerencie suas rotas e progresso
+        </p>
+      </div>
 
-      {estatisticas && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-          <Card>
-            <CardContent className="p-3 md:p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Visitas</span>
-                <Target className="h-4 w-4 text-blue-600" />
-              </div>
-              <div className="text-xl md:text-2xl font-bold">{estatisticas.totalVisitas}</div>
-              <div className="text-xs text-green-600">{estatisticas.taxaConclusao}% concluídas</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 md:p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Pedidos</span>
-                <Package className="h-4 w-4 text-green-600" />
-              </div>
-              <div className="text-xl md:text-2xl font-bold">{estatisticas.pedidosGerados}</div>
-              <div className="text-xs text-blue-600">{estatisticas.taxaConversao}% conversão</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 md:p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Valor</span>
-                <DollarSign className="h-4 w-4 text-emerald-600" />
-              </div>
-              <div className="text-lg md:text-xl font-bold">{formatCurrency(estatisticas.valorTotalPedidos)}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 md:p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Tempo Médio</span>
-                <Timer className="h-4 w-4 text-orange-600" />
-              </div>
-              <div className="text-xl md:text-2xl font-bold">{estatisticas.tempoMedioVisita} min</div>
-            </CardContent>
-          </Card>
+      {!isOnline && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-2">
+          <WifiOff className="w-4 h-4 text-amber-600" />
+          <span className="text-xs font-semibold text-amber-700">
+            Modo Offline: Os dados exibidos são do cache local.
+          </span>
         </div>
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="rotas">Minhas Rotas</TabsTrigger>
-          <TabsTrigger value="visitas">Visitas</TabsTrigger>
-          <TabsTrigger value="mapa">Mapa</TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="rotas" className="flex-1 flex flex-col overflow-hidden">
+        <div className="px-4 md:px-6 py-2">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <TabsList className="grid w-full sm:w-[400px] grid-cols-2 h-11 p-1 bg-white border border-[#F2F2F2] rounded-full shadow-sm mx-auto md:mx-0">
+              <TabsTrigger value="rotas" className="rounded-full text-xs sm:text-sm font-semibold transition-all data-[state=active]:bg-[#76BA1B] data-[state=active]:text-white data-[state=active]:shadow-md">
+                <span className="hidden sm:inline">Minhas Rotas</span>
+                <span className="sm:hidden">ROTAS</span>
+              </TabsTrigger>
+              <TabsTrigger value="visitas" className="rounded-full text-xs sm:text-sm font-semibold transition-all data-[state=active]:bg-[#76BA1B] data-[state=active]:text-white data-[state=active]:shadow-md">
+                <span className="hidden sm:inline">Minhas Visitas</span>
+                <span className="sm:hidden">VISITAS</span>
+              </TabsTrigger>
+            </TabsList>
 
-        <TabsContent value="rotas" className="space-y-4">
-          {rotas.length === 0 ? (
-            <Card>
-              <CardContent className="py-10 text-center">
-                <Route className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">Nenhuma rota cadastrada</p>
-                <Button onClick={() => setModalNovaRota(true)} className="mt-4">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Criar Primeira Rota
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            rotas.map(rota => (
-              <Card key={rota.CODROTA} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-semibold text-lg">{rota.DESCRICAO}</h3>
-                        <Badge variant="outline">
-                          {rota.TIPO_RECORRENCIA === 'SEMANAL' ? 'Semanal' : `A cada ${rota.INTERVALO_DIAS} dias`}
-                        </Badge>
-                      </div>
-                      
-                      {rota.TIPO_RECORRENCIA === 'SEMANAL' && rota.DIAS_SEMANA && (
-                        <div className="flex gap-1 mb-2">
-                          {rota.DIAS_SEMANA.split(',').map(d => (
-                            <Badge key={d} variant="secondary" className="text-xs">
-                              {diasSemanaLabels[parseInt(d)]}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                      
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-4 w-4" />
-                          {rota.parceiros?.length || 0} parceiros
-                        </span>
-                        {rota.NOMEVENDEDOR && (
-                          <span className="flex items-center gap-1">
-                            <Users className="h-4 w-4" />
-                            {rota.NOMEVENDEDOR}
-                          </span>
-                        )}
-                      </div>
-                      
-                      {rota.parceiros && rota.parceiros.length > 0 && (
-                        <div className="mt-3 space-y-1">
-                          {rota.parceiros.slice(0, 3).map((p, i) => (
-                            <div key={p.CODROTAPARC} className="flex items-center gap-2 text-sm">
-                              <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-medium">
-                                {i + 1}
-                              </div>
-                              <span className="truncate">{p.NOMEPARC}</span>
-                            </div>
-                          ))}
-                          {rota.parceiros.length > 3 && (
-                            <p className="text-xs text-muted-foreground pl-7">
-                              +{rota.parceiros.length - 3} parceiros
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setRotaSelecionada(rota)
-                          setActiveTab('mapa')
-                        }}
-                      >
-                        <MapPin className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => excluirRota(rota.CODROTA)}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setRotaSelecionada(rota)
-                          if (rota.parceiros && rota.parceiros.length > 0) {
-                            setParceiroCheckin(rota.parceiros[0])
-                            setModalCheckin(true)
-                          }
-                        }}
-                        disabled={!!visitaAtiva}
-                      >
-                        <Play className="h-4 w-4 mr-1" />
-                        Iniciar
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </TabsContent>
-
-        <TabsContent value="visitas" className="space-y-4">
-          <div className="flex gap-2 mb-4">
-            <Input
-              type="date"
-              value={filtroData.dataInicio}
-              onChange={(e) => setFiltroData(prev => ({ ...prev, dataInicio: e.target.value }))}
-              className="w-40"
-            />
-            <Input
-              type="date"
-              value={filtroData.dataFim}
-              onChange={(e) => setFiltroData(prev => ({ ...prev, dataFim: e.target.value }))}
-              className="w-40"
-            />
-            <Button variant="outline" onClick={carregarVisitas}>
-              <RefreshCw className="h-4 w-4" />
+            <Button onClick={() => setModalNovaRota(true)} className="w-full md:w-auto bg-[#76BA1B] hover:bg-[#1E5128] text-white h-11 font-bold rounded-full shadow-md shadow-[#76BA1B]/20 transition-all active:scale-[0.98]">
+              <Plus className="w-5 h-5 mr-2" />
+              Nova Rota
             </Button>
           </div>
+        </div>
 
-          {visitas.length === 0 ? (
-            <Card>
-              <CardContent className="py-10 text-center">
-                <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">Nenhuma visita no período</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-2">
-              {visitas.map(visita => (
-                <Card key={visita.CODVISITA}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-medium">{visita.NOMEPARC}</h4>
-                          {getStatusBadge(visita.STATUS)}
+        <TabsContent value="rotas" className="flex-1 overflow-auto m-0">
+          <div className="px-4 md:px-6 py-4 space-y-4 md:space-y-6 pb-24 md:pb-6">
+            {rotas.length === 0 ? (
+              <div className="py-12 text-center bg-white rounded-2xl border border-dashed border-[#F2F2F2]">
+                <Route className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-sm font-medium text-muted-foreground">Você ainda não tem rotas cadastradas.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {rotas.map((rota) => (
+                  <Card key={rota.CODROTA} className="rounded-2xl border-[#F2F2F2] shadow-sm hover:shadow-md transition-shadow overflow-hidden bg-white">
+                    <CardContent className="p-5">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-slate-900 text-base truncate">{rota.DESCRICAO}</h3>
+                          <div className="flex flex-col gap-1.5 mt-2">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="bg-slate-50 text-slate-600 border-[#F2F2F2] text-[10px] font-bold rounded-lg px-2">
+                                {rota.TIPO_RECORRENCIA === 'SEMANAL'
+                                  ? `Semanal (${rota.DIAS_SEMANA || ''})`
+                                  : `A cada ${rota.INTERVALO_DIAS} d`}
+                              </Badge>
+                              <Badge variant="outline" className="bg-[#76BA1B]/10 text-[#1E5128] border-[#76BA1B]/20 text-[10px] font-bold rounded-lg px-2">
+                                {rota.parceiros?.length || 0} parceiros
+                              </Badge>
+                            </div>
+
+                            <div className="flex flex-col gap-1 mt-1">
+                              {rota.NOMEVENDEDOR && (
+                                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                  <div className="w-4 h-4 rounded-full bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500 border border-slate-200 uppercase">
+                                    {rota.NOMEVENDEDOR.charAt(0)}
+                                  </div>
+                                  <span className="font-bold text-slate-700">{rota.NOMEVENDEDOR}</span>
+                                </div>
+                              )}
+                              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                <Calendar className="h-3 w-3 text-slate-400" />
+                                <span className="font-medium">Início:</span>
+                                <span className="text-slate-700 font-semibold">
+                                  {rota.DATA_INICIO ? format(parseISO(rota.DATA_INICIO), 'dd/MM/yyyy') : '-'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                <Calendar className="h-3 w-3 text-slate-400" />
+                                <span className="font-medium">Fim:</span>
+                                <span className="text-slate-700 font-semibold">
+                                  {rota.DATA_FIM ? format(parseISO(rota.DATA_FIM), 'dd/MM/yyyy') : '-'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {format(new Date(visita.DATA_VISITA), 'dd/MM/yyyy', { locale: ptBR })}
-                          </span>
-                          {visita.duracao && (
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {visita.duracao} min
-                            </span>
-                          )}
-                          {visita.PEDIDO_GERADO === 'S' && visita.VLRTOTAL && (
-                            <span className="flex items-center gap-1 text-green-600">
-                              <DollarSign className="h-3 w-3" />
-                              {formatCurrency(visita.VLRTOTAL)}
-                            </span>
-                          )}
-                        </div>
-                        {visita.OBSERVACAO && (
-                          <p className="text-sm text-muted-foreground mt-1 truncate">
-                            {visita.OBSERVACAO}
-                          </p>
-                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-amber-500 hover:text-amber-600 hover:bg-amber-50 shrink-0"
+                          title="Desativar Rota"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            desativarRota(rota.CODROTA);
+                          }}
+                        >
+                          <WifiOff className="h-4 w-4" />
+                        </Button>
                       </div>
-                      <div className="flex items-center">
-                        {visita.PEDIDO_GERADO === 'S' ? (
-                          <CheckCircle2 className="h-5 w-5 text-green-500" />
-                        ) : visita.STATUS === 'CONCLUIDA' ? (
-                          <XCircle className="h-5 w-5 text-gray-400" />
-                        ) : null}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+
+                      <Button
+                        className="w-full bg-[#76BA1B] hover:bg-[#1E5128] text-white rounded-xl shadow-md shadow-[#76BA1B]/20 h-10 font-bold text-sm mt-2 transition-transform active:scale-[0.98]"
+                        onClick={() => {
+                          setRotaSelecionada(rota);
+                          setModalDetalhesRota(true);
+                        }}
+                      >
+                        <Navigation className="h-4 w-4 mr-2" />
+                        Acessar Rota
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
         </TabsContent>
 
-        <TabsContent value="mapa">
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">
-                  {rotaSelecionada ? rotaSelecionada.DESCRICAO : 'Mapa de Rotas'}
-                </CardTitle>
-                {rotaSelecionada && (
-                  <Button variant="ghost" size="sm" onClick={() => setRotaSelecionada(null)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="h-[400px] md:h-[500px] w-full">
-                {typeof window !== 'undefined' && (
-                  <MapContainer
-                    center={[mapCenter.lat, mapCenter.lng]}
-                    zoom={12}
-                    style={{ height: '100%', width: '100%' }}
+        <TabsContent value="visitas" className="flex-1 overflow-auto m-0">
+          <div className="px-4 md:px-6 py-4 space-y-4 pb-24 md:pb-6">
+            <Card className="rounded-2xl border border-[#F2F2F2] shadow-sm bg-white overflow-hidden">
+              <Collapsible open={filtrosAbertos} onOpenChange={setFiltrosAbertos}>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="w-full flex items-center justify-between p-4 hover:bg-slate-50 rounded-none h-14"
                   >
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-                    
-                    {localizacaoAtual && (
-                      <Marker position={[localizacaoAtual.lat, localizacaoAtual.lng]}>
-                        <Popup>Sua localização</Popup>
-                      </Marker>
-                    )}
-                    
-                    {rotaSelecionada?.parceiros?.map((parceiro, idx) => (
-                      parceiro.LATITUDE && parceiro.LONGITUDE && (
-                        <Marker
-                          key={parceiro.CODROTAPARC}
-                          position={[parceiro.LATITUDE, parceiro.LONGITUDE]}
-                        >
-                          <Popup>
-                            <div className="font-semibold">{idx + 1}. {parceiro.NOMEPARC}</div>
-                            {parceiro.ENDERECO && <div className="text-sm">{parceiro.ENDERECO}</div>}
-                            {!visitaAtiva && (
+                    <div className="flex items-center gap-3">
+                      <div className="bg-[#76BA1B]/10 p-2 rounded-lg border border-[#76BA1B]/20">
+                        <Filter className="h-4 w-4 text-[#76BA1B]" />
+                      </div>
+                      <span className="font-bold text-sm text-[#1E5128]">Filtros de Busca</span>
+                    </div>
+                    {filtrosAbertos ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent className="p-4 pt-0 bg-muted/30 border-t space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-bold text-slate-500 uppercase">Data Inicial</Label>
+                        <Input
+                          type="date"
+                          value={filtroDataInicio}
+                          onChange={(e) => setFiltroDataInicio(e.target.value)}
+                          className="h-10 border-slate-200 focus:border-green-500 focus:ring-green-500/10 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-bold text-slate-500 uppercase">Data Final</Label>
+                        <Input
+                          type="date"
+                          value={filtroDataFim}
+                          onChange={(e) => setFiltroDataFim(e.target.value)}
+                          className="h-10 border-slate-200 focus:border-green-500 focus:ring-green-500/10 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-bold text-slate-500 uppercase">Buscar Parceiro</Label>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                          <Input
+                            placeholder="Nome ou Código..."
+                            value={buscaParceiroVisita}
+                            onChange={(e) => setBuscaParceiroVisita(e.target.value)}
+                            className="pl-9 h-10 border-slate-200 focus:border-green-500 focus:ring-green-500/10 text-sm"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const hoje = format(new Date(), 'yyyy-MM-dd')
+                          setFiltroDataInicio(hoje)
+                          setFiltroDataFim(hoje)
+                          setBuscaParceiroVisita('')
+                        }}
+                        className="h-8 border-slate-200 text-slate-600 font-bold text-xs"
+                      >
+                        Limpar
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const hoje = format(new Date(), 'yyyy-MM-dd')
+                          setFiltroDataInicio(hoje)
+                          setFiltroDataFim(hoje)
+                        }}
+                        className="h-8 border-slate-200 text-green-600 font-bold text-xs"
+                      >
+                        Hoje
+                      </Button>
+                    </div>
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
+            </Card>
+
+            <div className="space-y-3">
+              {visitasFiltradas.length === 0 ? (
+                <div className="py-12 text-center">
+                  <Calendar className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-muted-foreground">Nenhuma visita encontrada para esta data</p>
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {visitasFiltradas.map((visita) => {
+                    const isVisitaEmAndamento = visita.STATUS === 'EM_ANDAMENTO' || visita.STATUS === 'CHECKIN';
+                    const isVisitaAtivaDesteCard = visitaAtiva?.CODVISITA === visita.CODVISITA;
+
+                    return (
+                      <Card key={visita.CODVISITA} className={`rounded-2xl overflow-hidden border-[#F2F2F2] transition-all shadow-sm ${isVisitaEmAndamento ? 'ring-2 ring-[#76BA1B] border-transparent bg-[#76BA1B]/5' : 'hover:shadow-md bg-white'}`}>
+                        <CardContent className="p-5">
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex-1 min-w-0 flex gap-3">
+                              <div className={`w-10 h-10 rounded-xl ${isVisitaEmAndamento ? 'bg-[#76BA1B] text-white shadow-md shadow-[#76BA1B]/30' : 'bg-slate-100 text-slate-500'} flex items-center justify-center font-bold shrink-0 text-sm`}>
+                                {visita.NOMEPARC?.charAt(0)}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between mb-1">
+                                  <h3 className="font-bold text-slate-900 text-sm truncate">{visita.NOMEPARC}</h3>
+                                  <div className="shrink-0 scale-90 origin-right">
+                                    {getStatusBadge(visita.STATUS)}
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mb-3">
+                                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                    <Calendar className="h-3 w-3 text-slate-400" />
+                                    <span className="font-medium">{visita.DHVISITA ? format(parseISO(visita.DHVISITA.replace(' ', 'T')), "dd/MM '•' EEEE", { locale: ptBR }) : '-'}</span>
+                                  </div>
+                                  {visita.NOMEVENDEDOR && (
+                                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground truncate">
+                                      <div className="w-3.5 h-3.5 rounded-full bg-slate-100 flex items-center justify-center text-[7px] font-black text-slate-500 border border-slate-200 uppercase shrink-0">
+                                        {visita.NOMEVENDEDOR.charAt(0)}
+                                      </div>
+                                      <span className="font-bold text-slate-700 truncate">{visita.NOMEVENDEDOR}</span>
+                                    </div>
+                                  )}
+                                  {visita.STATUS === 'CONCLUIDA' && (
+                                    <>
+                                      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                        <Clock className="h-3 w-3 text-slate-400" />
+                                        <span className="font-bold text-slate-700">{visita.duracao ? `${visita.duracao} min` : '-'}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                        {visita.PEDIDO_GERADO === 'S' ? (
+                                          <>
+                                            <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                            <span className="font-bold text-green-700">Pedido: #{visita.NUNOTA}</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <X className="h-3 w-3 text-slate-400" />
+                                            <span className="font-medium text-slate-400">Sem pedido</span>
+                                          </>
+                                        )}
+                                      </div>
+                                      <div className="col-span-2 flex items-center gap-3 mt-1 pt-1 border-t border-slate-50">
+                                        <div className="flex flex-col">
+                                          <span className="text-[8px] text-slate-400 uppercase font-black">Check-in</span>
+                                          <span className="text-[10px] font-bold text-slate-600">{visita.HORA_CHECKIN ? format(new Date(visita.HORA_CHECKIN), 'HH:mm') : '-'}</span>
+                                        </div>
+                                        <div className="flex flex-col">
+                                          <span className="text-[8px] text-slate-400 uppercase font-black">Check-out</span>
+                                          <span className="text-[10px] font-bold text-slate-600">{visita.HORA_CHECKOUT ? format(new Date(visita.HORA_CHECKOUT), 'HH:mm') : '-'}</span>
+                                        </div>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2.5 mt-2">
+                            {isVisitaEmAndamento ? (
                               <Button
-                                size="sm"
-                                className="mt-2 w-full"
+                                className="flex-1 bg-[#76BA1B] hover:bg-[#1E5128] text-white rounded-xl shadow-md shadow-[#76BA1B]/20 h-10 font-bold text-xs transition-transform active:scale-[0.98]"
                                 onClick={() => {
-                                  setParceiroCheckin(parceiro)
+                                  setVisitaAtiva(visita);
+                                  setModalCheckout(true);
+                                }}
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                                Checkout
+                              </Button>
+                            ) : (
+                              <Button
+                                className="flex-1 bg-[#76BA1B] hover:bg-[#1E5128] text-white rounded-xl shadow-md shadow-[#76BA1B]/20 h-10 font-bold text-xs transition-transform active:scale-[0.98]"
+                                disabled={bloquearAcoes || visita.STATUS === 'CONCLUIDA' || visita.STATUS === 'CANCELADA'}
+                                onClick={() => {
+                                  setParceiroCheckin(visita)
                                   setModalCheckin(true)
                                 }}
                               >
+                                <MapPin className="h-4 w-4 mr-1.5" />
                                 Check-in
                               </Button>
                             )}
-                          </Popup>
-                        </Marker>
-                      )
-                    ))}
-                    
-                    {rotaParceirosCoordenadas.length > 1 && (
-                      <Polyline
-                        positions={rotaParceirosCoordenadas}
-                        color="blue"
-                        weight={3}
-                        opacity={0.7}
-                      />
-                    )}
-                  </MapContainer>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-          
-          {rotaSelecionada?.parceiros && rotaSelecionada.parceiros.length > 0 && (
-            <Card className="mt-4">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Parceiros da Rota</CardTitle>
-              </CardHeader>
-              <CardContent className="p-2">
-                <div className="space-y-2">
-                  {rotaSelecionada.parceiros.map((p, i) => (
-                    <div key={p.CODROTAPARC} className="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
-                          {i + 1}
-                        </div>
-                        <div>
-                          <p className="font-medium text-sm">{p.NOMEPARC}</p>
-                          {p.CIDADE && <p className="text-xs text-muted-foreground">{p.CIDADE}/{p.UF}</p>}
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!!visitaAtiva}
-                        onClick={() => {
-                          setParceiroCheckin(p)
-                          setModalCheckin(true)
-                        }}
-                      >
-                        <Navigation className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-10 w-10 border-[#F2F2F2] rounded-xl shrink-0 hover:bg-slate-50 transition-colors"
+                              onClick={() => {
+                                setVisitaParaMapa(visita)
+                                setModalMapaVisita(true)
+                              }}
+                            >
+                              <Navigation className="h-4 w-4 text-slate-600" />
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
 
-      <Dialog open={modalNovaRota} onOpenChange={setModalNovaRota}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Nova Rota</DialogTitle>
+      {/* Modais - Premium Clean */}
+      <Dialog open={modalDetalhesRota} onOpenChange={setModalDetalhesRota}>
+        <DialogContent className="sm:max-w-5xl h-full sm:h-[90vh] flex flex-col p-0 overflow-hidden bg-white sm:rounded-2xl border-none shadow-2xl rounded-none">
+          <DialogHeader className="p-5 border-b border-[#F2F2F2] bg-transparent sticky top-0 z-10 shrink-0">
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-xl font-bold flex items-center gap-3 text-[#1E5128]">
+                <div className="bg-[#76BA1B]/10 p-2 rounded-xl border border-[#76BA1B]/20">
+                  <Route className="w-5 h-5 text-[#76BA1B]" />
+                </div>
+                {rotaSelecionada?.DESCRICAO}
+              </DialogTitle>
+              <Button variant="ghost" size="icon" className="rounded-full hover:bg-[#F2F2F2] transition-colors" onClick={() => setModalDetalhesRota(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </DialogHeader>
-          
-          <div className="space-y-4">
-            <div>
-              <Label>Nome da Rota</Label>
-              <Input
-                value={novaRotaForm.descricao}
-                onChange={(e) => setNovaRotaForm(prev => ({ ...prev, descricao: e.target.value }))}
-                placeholder="Ex: Rota Centro"
-              />
-            </div>
-            
-            <div>
-              <Label>Tipo de Recorrência</Label>
-              <Select
-                value={novaRotaForm.tipoRecorrencia}
-                onValueChange={(v) => setNovaRotaForm(prev => ({ ...prev, tipoRecorrencia: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="SEMANAL">Dias da Semana</SelectItem>
-                  <SelectItem value="INTERVALO">Intervalo de Dias</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            {novaRotaForm.tipoRecorrencia === 'SEMANAL' && (
-              <div>
-                <Label>Dias da Semana</Label>
-                <div className="flex gap-2 mt-2">
-                  {diasSemanaLabels.map((dia, idx) => (
-                    <Button
-                      key={idx}
-                      type="button"
-                      variant={novaRotaForm.diasSemana.includes(idx) ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => {
-                        setNovaRotaForm(prev => ({
-                          ...prev,
-                          diasSemana: prev.diasSemana.includes(idx)
-                            ? prev.diasSemana.filter(d => d !== idx)
-                            : [...prev.diasSemana, idx]
-                        }))
-                      }}
-                    >
-                      {dia}
-                    </Button>
+
+          <div className="flex-1 overflow-y-auto p-0 flex flex-col md:flex-row">
+            <div className="w-full md:w-2/3 h-[300px] md:h-auto border-b md:border-b-0 md:border-r relative z-0">
+              {typeof window !== 'undefined' && (
+                <MapContainer
+                  bounds={rotaParceirosCoordenadas.length > 0 ? L.latLngBounds(rotaParceirosCoordenadas) : undefined}
+                  center={rotaParceirosCoordenadas.length === 0 ? [mapCenter.lat, mapCenter.lng] : undefined}
+                  zoom={rotaParceirosCoordenadas.length === 0 ? 12 : undefined}
+                  style={{ height: '100%', width: '100%' }}
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  {localizacaoAtual && (
+                    <Marker position={[localizacaoAtual.lat, localizacaoAtual.lng]}>
+                      <Popup>Sua localização</Popup>
+                    </Marker>
+                  )}
+                  {rotaSelecionada?.parceiros?.filter(p => p.LATITUDE && p.LONGITUDE).map((p, idx) => (
+                    <Marker key={p.CODROTAPARC} position={[p.LATITUDE!, p.LONGITUDE!]}>
+                      <Popup>
+                        <div className="p-1">
+                          <p className="font-bold">{p.NOMEPARC}</p>
+                          <p className="text-xs text-muted-foreground">Ordem: {p.ORDEM}</p>
+                        </div>
+                      </Popup>
+                    </Marker>
                   ))}
+                  {rotaParceirosCoordenadas.length > 1 && (
+                    <Polyline
+                      positions={rotaParceirosCoordenadas as any}
+                      color="#16a34a"
+                      weight={4}
+                      opacity={0.7}
+                    />
+                  )}
+                </MapContainer>
+              )}
+            </div>
+
+            <div className="w-full md:w-1/3 flex flex-col bg-slate-50/30 overflow-hidden">
+              <div className="p-4 border-b bg-white">
+                <h4 className="font-bold text-xs text-slate-500 uppercase tracking-wider mb-3">Informações da Rota</h4>
+
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  <div className="p-2 bg-slate-50 border border-slate-100 rounded-lg text-center">
+                    <p className="text-[9px] font-black text-slate-400 uppercase mb-0.5">Agendadas</p>
+                    <p className="text-sm font-black text-slate-800 leading-none">
+                      {visitas.filter(v =>
+                        (v as any).CODROTA === rotaSelecionada?.CODROTA ||
+                        rotaSelecionada?.parceiros?.some(p => p.CODPARC === v.CODPARC)
+                      ).length}
+                    </p>
+                  </div>
+                  <div className="p-2 bg-blue-50 border border-blue-100 rounded-lg text-center">
+                    <p className="text-[9px] font-black text-blue-400 uppercase mb-0.5">Realizadas</p>
+                    <p className="text-sm font-black text-blue-700 leading-none">
+                      {visitas.filter(v => v.STATUS === 'CONCLUIDA' && rotaSelecionada?.parceiros.some(p => p.CODPARC === v.CODPARC)).length}
+                    </p>
+                  </div>
+                  <div className="p-2 bg-green-50 border border-green-100 rounded-lg text-center">
+                    <p className="text-[9px] font-black text-green-400 uppercase mb-0.5">Pedidos</p>
+                    <p className="text-sm font-black text-green-700 leading-none">
+                      {visitas.filter(v => v.STATUS === 'CONCLUIDA' && (v as any).NUNOTA && rotaSelecionada?.parceiros.some(p => p.CODPARC === v.CODPARC)).length}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Recorrência:</span>
+                    <Badge variant="outline" className="text-[10px] font-bold">
+                      {rotaSelecionada?.TIPO_RECORRENCIA === 'SEMANAL'
+                        ? `Semanal (${rotaSelecionada?.DIAS_SEMANA || ''})`
+                        : `A cada ${rotaSelecionada?.INTERVALO_DIAS} dias`}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Período:</span>
+                    <span className="font-semibold text-[10px] text-slate-700">
+                      {rotaSelecionada?.DATA_INICIO && format(new Date(rotaSelecionada.DATA_INICIO), 'dd/MM/yy')} - {rotaSelecionada?.DATA_FIM && format(new Date(rotaSelecionada.DATA_FIM), 'dd/MM/yy')}
+                    </span>
+                  </div>
                 </div>
               </div>
-            )}
-            
-            {novaRotaForm.tipoRecorrencia === 'INTERVALO' && (
-              <div>
-                <Label>A cada quantos dias?</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={novaRotaForm.intervaloDias}
-                  onChange={(e) => setNovaRotaForm(prev => ({ ...prev, intervaloDias: parseInt(e.target.value) || 1 }))}
-                />
-              </div>
-            )}
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Data Início</Label>
-                <Input
-                  type="date"
-                  value={novaRotaForm.dataInicio}
-                  onChange={(e) => setNovaRotaForm(prev => ({ ...prev, dataInicio: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label>Data Fim (opcional)</Label>
-                <Input
-                  type="date"
-                  value={novaRotaForm.dataFim}
-                  onChange={(e) => setNovaRotaForm(prev => ({ ...prev, dataFim: e.target.value }))}
-                />
-              </div>
-            </div>
-            
-            <div>
-              <Label>Parceiros da Rota</Label>
-              <Input
-                placeholder="Pesquisar parceiro..."
-                value={buscaParceiro}
-                onChange={(e) => setBuscaParceiro(e.target.value)}
-                className="mt-2"
-              />
-              <ScrollArea className="h-48 border rounded-md p-2 mt-2">
-                {parceirosDisponiveis
-                  .filter(p => !buscaParceiro || p.NOMEPARC?.toLowerCase().includes(buscaParceiro.toLowerCase()))
-                  .slice(0, 50).map(parceiro => {
-                  const isSelected = novaRotaForm.parceiros.some(p => p.codParc === parceiro.CODPARC)
-                  const ordem = novaRotaForm.parceiros.findIndex(p => p.codParc === parceiro.CODPARC) + 1
-                  
-                  return (
-                    <div
-                      key={parceiro.CODPARC}
-                      className={`flex items-center justify-between p-2 rounded cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
-                      onClick={() => {
-                        if (isSelected) {
-                          setNovaRotaForm(prev => ({
-                            ...prev,
-                            parceiros: prev.parceiros
-                              .filter(p => p.codParc !== parceiro.CODPARC)
-                              .map((p, i) => ({ ...p, ordem: i + 1 }))
-                          }))
-                        } else {
-                          setNovaRotaForm(prev => ({
-                            ...prev,
-                            parceiros: [...prev.parceiros, {
-                              codParc: parceiro.CODPARC,
-                              ordem: prev.parceiros.length + 1,
-                              latitude: parceiro.LATITUDE,
-                              longitude: parceiro.LONGITUDE
-                            }]
-                          }))
-                        }
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        {isSelected && (
-                          <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs">
-                            {ordem}
-                          </div>
-                        )}
-                        <span className="text-sm">{parceiro.NOMEPARC}</span>
+
+              <ScrollArea className="flex-1">
+                <div className="p-4 space-y-3">
+                  <h4 className="font-bold text-xs text-slate-500 uppercase tracking-wider">Parceiros ({rotaSelecionada?.parceiros?.length || 0})</h4>
+                  {rotaSelecionada?.parceiros?.map((p, i) => (
+                    <div key={p.CODROTAPARC} className="flex items-center gap-3 p-3 bg-white border border-slate-100 rounded-lg shadow-sm">
+                      <div className="w-6 h-6 rounded-full bg-green-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+                        {i + 1}
                       </div>
-                      <Checkbox checked={isSelected} />
+                      <div className="min-w-0">
+                        <p className="font-bold text-xs text-slate-900 truncate">{p.NOMEPARC}</p>
+                        <p className="text-[10px] text-muted-foreground">ID: {p.CODPARC}</p>
+                      </div>
                     </div>
-                  )
-                })}
+                  ))}
+                </div>
               </ScrollArea>
-              <p className="text-xs text-muted-foreground mt-1">
-                {novaRotaForm.parceiros.length} parceiros selecionados
-              </p>
+
+              <div className="p-4 bg-white border-t sticky bottom-0">
+                <Button
+                  className="w-full bg-[#76BA1B] hover:bg-[#1E5128] text-white rounded-xl h-11 font-bold shadow-md shadow-[#76BA1B]/20 transition-all active:scale-[0.98]"
+                  onClick={() => {
+                    setModalDetalhesRota(false);
+                    setModalNovaRota(true);
+                  }}
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Editar Rota
+                </Button>
+              </div>
             </div>
           </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalNovaRota(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={criarRota} disabled={!novaRotaForm.descricao || novaRotaForm.parceiros.length === 0}>
-              Criar Rota
-            </Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modalNovaRota} onOpenChange={setModalNovaRota}>
+        <DialogContent className="max-w-4xl max-h-[95vh] flex flex-col p-0 overflow-hidden bg-white sm:rounded-2xl border-none shadow-2xl">
+          <DialogHeader className="p-5 border-b border-[#F2F2F2] bg-transparent">
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-xl font-bold flex items-center gap-3 text-[#1E5128]">
+                <div className="bg-[#76BA1B]/10 p-2 rounded-xl border border-[#76BA1B]/20">
+                  <Route className="w-5 h-5 text-[#76BA1B]" />
+                </div>
+                Configurar Nova Rota
+              </DialogTitle>
+            </div>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto p-5 space-y-6 scrollbar-hide">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-500 uppercase">Nome da Rota</Label>
+                  <Input
+                    placeholder="Ex: Rota Centro"
+                    value={novaRotaForm.descricao}
+                    onChange={(e) => setNovaRotaForm(prev => ({ ...prev, descricao: e.target.value }))}
+                    className="h-10 border-slate-200 focus:border-green-500 focus:ring-green-500/10 transition-all font-medium"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-500 uppercase">Vendedor</Label>
+                  <Select
+                    value={novaRotaForm.codVend}
+                    onValueChange={(v) => setNovaRotaForm(prev => ({ ...prev, codVend: v }))}
+                  >
+                    <SelectTrigger className="h-10 border-slate-200 bg-white">
+                      <SelectValue placeholder="Selecione o vendedor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {vendedores.map((v: any) => (
+                        <SelectItem key={v.CODVEND} value={v.CODVEND.toString()}>
+                          {v.APELIDO || v.NOMEVEND || `Vendedor ${v.CODVEND}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-500 uppercase">Tipo de Recorrência</Label>
+                  <Select
+                    value={novaRotaForm.tipoRecorrencia}
+                    onValueChange={(v) => setNovaRotaForm(prev => ({ ...prev, tipoRecorrencia: v }))}
+                  >
+                    <SelectTrigger className="h-10 border-slate-200 bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="SEMANAL">Dias da Semana</SelectItem>
+                      <SelectItem value="INTERVALO">Intervalo de Dias</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {novaRotaForm.tipoRecorrencia === 'INTERVALO' && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-slate-500 uppercase">A cada quantos dias?</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={novaRotaForm.intervaloDias}
+                      onChange={(e) => setNovaRotaForm(prev => ({ ...prev, intervaloDias: parseInt(e.target.value) || 1 }))}
+                      className="h-10 border-slate-200"
+                    />
+                  </div>
+                )}
+
+                {novaRotaForm.tipoRecorrencia === 'SEMANAL' && (
+                  <div className="space-y-1.5 md:col-span-1">
+                    <Label className="text-xs font-bold text-slate-500 uppercase">Dias da Semana</Label>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {diasSemanaLabels.map((dia, idx) => {
+                        const isSelected = novaRotaForm.diasSemana.includes(idx)
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setNovaRotaForm(prev => ({
+                                ...prev,
+                                diasSemana: prev.diasSemana.includes(idx)
+                                  ? prev.diasSemana.filter(d => d !== idx)
+                                  : [...prev.diasSemana, idx]
+                              }))
+                            }}
+                            className={`h-8 px-2.5 rounded-lg border text-[10px] font-bold transition-all ${isSelected
+                              ? 'bg-green-600 border-green-600 text-white shadow-sm'
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-green-300'
+                              }`}
+                          >
+                            {dia}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-500 uppercase">Data Início <span className="text-red-500">*</span></Label>
+                  <Input
+                    type="date"
+                    value={novaRotaForm.dataInicio}
+                    onChange={(e) => setNovaRotaForm(prev => ({ ...prev, dataInicio: e.target.value }))}
+                    className="h-10 border-slate-200"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-500 uppercase">Data Fim <span className="text-red-500">*</span></Label>
+                  <Input
+                    type="date"
+                    value={novaRotaForm.dataFim}
+                    onChange={(e) => setNovaRotaForm(prev => ({ ...prev, dataFim: e.target.value }))}
+                    className="h-10 border-slate-200"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 p-3 bg-green-50 rounded-lg border border-green-100">
+                <Checkbox
+                  id="adicionarCalendario"
+                  checked={novaRotaForm.adicionarCalendario}
+                  onCheckedChange={(checked) => setNovaRotaForm(prev => ({ ...prev, adicionarCalendario: !!checked }))}
+                />
+                <div className="grid gap-1.5 leading-none">
+                  <label
+                    htmlFor="adicionarCalendario"
+                    className="text-xs font-bold text-green-900 leading-none cursor-pointer"
+                  >
+                    Adicionar ao calendário de tarefas?
+                  </label>
+                  <p className="text-[10px] text-green-700 font-medium">
+                    As visitas geradas serão salvas como tarefas para acompanhamento.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold text-slate-500 uppercase">Selecionar Parceiros</Label>
+                <Badge variant="secondary" className="bg-green-100 text-green-700 font-bold text-[10px]">
+                  {novaRotaForm.parceiros.length} Selecionados
+                </Badge>
+              </div>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="Pesquisar por nome ou código..."
+                  value={buscaParceiro}
+                  onChange={(e) => setBuscaParceiro(e.target.value)}
+                  className="pl-9 h-10 border-slate-200 bg-slate-50/50 focus:bg-white"
+                />
+              </div>
+
+              <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                <ScrollArea className="h-[200px]">
+                  <div className="divide-y divide-slate-100">
+                    {parceirosDisponiveis
+                      .filter(p => !buscaParceiro || p.NOMEPARC?.toLowerCase().includes(buscaParceiro.toLowerCase()) || p.CODPARC.toString().includes(buscaParceiro))
+                      .slice(0, 50).map(parceiro => {
+                        const isSelected = novaRotaForm.parceiros.some(p => p.codParc === parceiro.CODPARC)
+                        const ordem = novaRotaForm.parceiros.findIndex(p => p.codParc === parceiro.CODPARC) + 1
+
+                        return (
+                          <div
+                            key={parceiro.CODPARC}
+                            className={`flex items-center justify-between p-3 cursor-pointer transition-all ${isSelected ? 'bg-green-50/60' : 'hover:bg-slate-50'
+                              }`}
+                            onClick={() => {
+                              if (isSelected) {
+                                setNovaRotaForm(prev => ({
+                                  ...prev,
+                                  parceiros: prev.parceiros
+                                    .filter(p => p.codParc !== parceiro.CODPARC)
+                                    .map((p, i) => ({ ...p, ordem: i + 1 }))
+                                }))
+                              } else {
+                                setNovaRotaForm(prev => ({
+                                  ...prev,
+                                  parceiros: [...prev.parceiros, {
+                                    codParc: parceiro.CODPARC,
+                                    ordem: prev.parceiros.length + 1,
+                                    latitude: parceiro.LATITUDE,
+                                    longitude: parceiro.LONGITUDE
+                                  }]
+                                }))
+                              }
+                            }}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${isSelected ? 'bg-green-600 border-green-600 shadow-sm' : 'border-slate-300 bg-white'
+                                }`}>
+                                {isSelected && <Check className="w-3 h-3 text-white stroke-[4px]" />}
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className={`text-xs font-bold truncate ${isSelected ? 'text-green-900' : 'text-slate-800'}`}>
+                                  {parceiro.NOMEPARC}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  Cód: {parceiro.CODPARC} {parceiro.CIDADE ? `• ${parceiro.CIDADE}` : ''}
+                                </span>
+                              </div>
+                            </div>
+                            {isSelected && (
+                              <Badge variant="secondary" className="bg-green-100 text-green-700 font-black text-[9px] h-5">
+                                #{ordem}
+                              </Badge>
+                            )}
+                          </div>
+                        )
+                      })}
+                  </div>
+                </ScrollArea>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="p-5 border-t border-[#F2F2F2] bg-white sticky bottom-0 z-10">
+            <div className="flex items-center justify-between w-full">
+              <Button variant="outline" onClick={() => setModalNovaRota(false)} className="h-11 rounded-xl px-6 border-[#F2F2F2] font-bold text-slate-600 bg-white hover:bg-slate-50">
+                Cancelar
+              </Button>
+              <Button
+                onClick={criarRota}
+                disabled={!novaRotaForm.descricao || novaRotaForm.parceiros.length === 0 || criandoRota}
+                className="h-11 px-8 rounded-xl bg-[#76BA1B] hover:bg-[#1E5128] text-white font-bold shadow-md shadow-[#76BA1B]/20 transition-all active:scale-[0.98]"
+              >
+                {criandoRota ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Criando...
+                  </>
+                ) : (
+                  'Confirmar Rota'
+                )}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={modalCheckin} onOpenChange={setModalCheckin}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Navigation className="h-5 w-5 text-blue-600" />
-              Confirmar Check-in
-            </DialogTitle>
+        <DialogContent className="sm:max-w-md h-full sm:h-auto flex flex-col p-0 overflow-hidden bg-white sm:rounded-2xl border-none shadow-2xl rounded-none">
+          <DialogHeader className="p-5 border-b border-[#F2F2F2] bg-transparent sticky top-0 z-10 shrink-0">
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-xl font-bold flex items-center gap-3 text-[#1E5128]">
+                <div className="bg-[#76BA1B]/10 p-2 rounded-xl border border-[#76BA1B]/20">
+                  <Navigation className="h-6 w-6 text-[#76BA1B]" />
+                </div>
+                Confirmar Visita
+              </DialogTitle>
+              <Button variant="ghost" size="icon" className="rounded-full hover:bg-slate-100 transition-colors" onClick={() => setModalCheckin(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </DialogHeader>
-          
-          {parceiroCheckin && (
-            <div className="space-y-4">
-              <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                <h4 className="font-semibold">{parceiroCheckin.NOMEPARC}</h4>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white border flex items-center justify-center text-slate-400">
+                  <Plus className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-slate-500 uppercase leading-none mb-1">Nova Atividade</p>
+                  <p className="text-sm font-bold text-slate-700">Adicionar Atalho?</p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-[10px] font-black uppercase border-slate-200 text-blue-600 border-blue-100 hover:bg-blue-50"
+                onClick={() => setModalAtividade(true)}
+              >
+                Adicionar
+              </Button>
+            </div>
+
+            {parceiroCheckin && (
+              <div className="p-4 bg-green-50/50 border border-green-100 rounded-xl space-y-1">
+                <h4 className="font-bold text-green-900">{parceiroCheckin.NOMEPARC}</h4>
                 {parceiroCheckin.ENDERECO && (
-                  <p className="text-sm text-muted-foreground">{parceiroCheckin.ENDERECO}</p>
+                  <p className="text-xs text-green-700 font-medium">{parceiroCheckin.ENDERECO}, {parceiroCheckin.NUMERO}</p>
                 )}
                 {parceiroCheckin.CIDADE && (
-                  <p className="text-sm text-muted-foreground">{parceiroCheckin.CIDADE}/{parceiroCheckin.UF}</p>
+                  <p className="text-[10px] text-green-600 uppercase font-black">{parceiroCheckin.CIDADE}/{parceiroCheckin.UF}</p>
                 )}
               </div>
-              
-              <p className="text-sm text-muted-foreground">
-                Sua localização atual será registrada ao fazer o check-in.
+            )}
+
+            <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-100 rounded-lg">
+              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-800 font-medium leading-relaxed">
+                Ao realizar o check-in, sua localização atual será registrada e o tempo de visita começará a ser contabilizado.
               </p>
             </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalCheckin(false)}>
-              Cancelar
+          </div>
+
+          <DialogFooter className="p-6 bg-white border-t border-[#F2F2F2] flex flex-col sm:flex-row gap-3 mt-auto">
+            <Button variant="outline" onClick={() => setModalCheckin(false)} className="h-11 rounded-xl font-bold flex-1 border-[#F2F2F2] hover:bg-slate-50 text-[#121212]">
+              Agora não
             </Button>
-            <Button onClick={fazerCheckin} className="bg-blue-600 hover:bg-blue-700">
+            <Button onClick={fazerCheckin} className="rounded-xl bg-[#76BA1B] hover:bg-[#1E5128] text-white h-11 font-bold flex-1 shadow-md shadow-[#76BA1B]/20 transition-all active:scale-[0.98]">
               <MapPin className="h-4 w-4 mr-2" />
               Fazer Check-in
             </Button>
@@ -1092,75 +1391,255 @@ export default function RotasManager() {
       </Dialog>
 
       <Dialog open={modalCheckout} onOpenChange={setModalCheckout}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Check className="h-5 w-5 text-green-600" />
-              Finalizar Visita
-            </DialogTitle>
+        <DialogContent className="sm:max-w-lg h-full sm:h-auto flex flex-col p-0 overflow-hidden bg-white sm:rounded-2xl border-none shadow-2xl rounded-none">
+          <DialogHeader className="p-5 border-b border-[#F2F2F2] bg-transparent sticky top-0 z-10 shrink-0">
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-xl font-bold flex items-center gap-3 text-[#1E5128]">
+                <div className="bg-[#76BA1B]/10 p-2 rounded-xl border border-[#76BA1B]/20">
+                  <CheckCircle2 className="h-6 w-6 text-[#76BA1B]" />
+                </div>
+                Concluir Atendimento
+              </DialogTitle>
+              <Button variant="ghost" size="icon" className="rounded-full hover:bg-slate-100 transition-colors" onClick={() => setModalCheckout(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </DialogHeader>
-          
-          {visitaAtiva && (
-            <div className="space-y-4">
-              <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                <h4 className="font-semibold">{visitaAtiva.NOMEPARC}</h4>
-                <p className="text-sm text-muted-foreground">
-                  Check-in: {visitaAtiva.HORA_CHECKIN ? format(new Date(visitaAtiva.HORA_CHECKIN), 'HH:mm', { locale: ptBR }) : '-'}
-                </p>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white border flex items-center justify-center text-slate-400">
+                  <Plus className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-slate-500 uppercase leading-none mb-1">Nova Atividade</p>
+                  <p className="text-sm font-bold text-slate-700">Adicionar Atalho?</p>
+                </div>
               </div>
-              
-              <div>
-                <Label>Observações</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-[10px] font-black uppercase border-slate-200 text-blue-600 border-blue-100 hover:bg-blue-50"
+                onClick={() => setModalAtividade(true)}
+              >
+                Adicionar
+              </Button>
+            </div>
+
+            {visitaAtiva && (
+              <div className="p-4 bg-green-50/30 border border-green-100 rounded-xl">
+                <h4 className="font-bold text-sm text-green-900">{visitaAtiva.NOMEPARC}</h4>
+                <div className="flex items-center gap-2 mt-2">
+                  <Badge variant="outline" className="bg-white border-green-200 text-green-700 text-[10px] py-0 px-2">
+                    Início: {visitaAtiva.HORA_CHECKIN ? format(new Date(visitaAtiva.HORA_CHECKIN), 'HH:mm') : '-'}
+                  </Badge>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-500 uppercase">Resumo da Visita</Label>
                 <Textarea
                   value={checkoutForm.observacao}
                   onChange={(e) => setCheckoutForm(prev => ({ ...prev, observacao: e.target.value }))}
-                  placeholder="O que foi realizado na visita?"
-                  rows={3}
+                  placeholder="Relate brevemente o que foi conversado ou realizado..."
+                  className="min-h-[120px] border-slate-200 focus:ring-green-500/10"
                 />
               </div>
-              
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="pedidoGerado"
-                  checked={checkoutForm.pedidoGerado}
-                  onCheckedChange={(checked) => setCheckoutForm(prev => ({ ...prev, pedidoGerado: !!checked }))}
-                />
-                <Label htmlFor="pedidoGerado">Pedido foi gerado?</Label>
-              </div>
-              
-              {checkoutForm.pedidoGerado && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Nº do Pedido</Label>
-                    <Input
-                      value={checkoutForm.nunota}
-                      onChange={(e) => setCheckoutForm(prev => ({ ...prev, nunota: e.target.value }))}
-                      placeholder="NUNOTA"
-                    />
+
+              {!checkoutForm.nunota ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full h-14 border-dashed border-2 border-green-200 hover:border-green-500 hover:bg-green-50 text-green-700 font-bold flex items-center justify-center gap-3 transition-all rounded-xl"
+                  onClick={() => setModalPedidoRapido(true)}
+                >
+                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-600">
+                    <Plus className="w-4 h-4" />
                   </div>
-                  <div>
-                    <Label>Valor Total</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={checkoutForm.vlrTotal}
-                      onChange={(e) => setCheckoutForm(prev => ({ ...prev, vlrTotal: e.target.value }))}
-                      placeholder="0,00"
-                    />
+                  Realizar Venda
+                </Button>
+              ) : (
+                <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white">
+                      <Check className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-blue-800 uppercase leading-none mb-1">Pedido Gerado</p>
+                      <p className="text-sm font-bold text-blue-700">#{checkoutForm.nunota}</p>
+                    </div>
                   </div>
+                  <Badge className="bg-blue-600 text-white border-none text-[10px] font-black h-6">
+                    {formatCurrency(parseFloat(checkoutForm.vlrTotal) || 0)}
+                  </Badge>
                 </div>
               )}
             </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalCheckout(false)}>
-              Cancelar
+          </div>
+
+          <DialogFooter className="p-6 bg-white border-t border-[#F2F2F2] flex flex-col sm:flex-row gap-3 mt-auto">
+            <Button variant="outline" onClick={() => setModalCheckout(false)} className="h-11 rounded-xl font-bold flex-1 border-[#F2F2F2] hover:bg-slate-50 text-[#121212]">
+              Continuar Visita
             </Button>
-            <Button onClick={fazerCheckout} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={fazerCheckout} className="rounded-xl bg-[#76BA1B] hover:bg-[#1E5128] text-white h-11 font-bold flex-1 shadow-md shadow-[#76BA1B]/20 transition-all active:scale-[0.98]">
               <Check className="h-4 w-4 mr-2" />
-              Finalizar Check-out
+              Finalizar Checkout
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Pedido Rápido */}
+      {modalPedidoRapido && visitaAtiva && (
+        <PedidoVendaRapido
+          isOpen={modalPedidoRapido}
+          onClose={() => setModalPedidoRapido(false)}
+          parceiroSelecionado={{
+            CODPARC: visitaAtiva.CODPARC,
+            NOMEPARC: visitaAtiva.NOMEPARC,
+            CGC_CPF: visitaAtiva.CGC_CPF,
+            INSCESTAD: visitaAtiva.IDENTINSCESTAD || "",
+            TIPPESSOA: visitaAtiva.TIPPESSOA,
+            RAZAOSOCIAL: visitaAtiva.RAZAOSOCIAL || visitaAtiva.NOMEPARC
+          }}
+          onSuccess={(pedido) => {
+            console.log('✅ Pedido gerado com sucesso no checkout:', pedido);
+            setCheckoutForm(prev => ({
+              ...prev,
+              pedidoGerado: true,
+              nunota: pedido.NUNOTA?.toString() || '',
+              vlrTotal: pedido.VLRNOT?.toString() || pedido.VLRTOTAL?.toString() || ''
+            }));
+            setModalPedidoRapido(false);
+            // Se for um checkout em andamento, garante que a visita ativa seja atualizada se necessário
+            // ou apenas mantenha o modal de checkout aberto para finalização
+          }}
+        />
+      )}
+      {/* Modal de Mapa do Cliente */}
+      <Dialog open={modalMapaVisita} onOpenChange={setModalMapaVisita}>
+        <DialogContent className="sm:max-w-3xl h-full sm:h-[80vh] flex flex-col p-0 overflow-hidden bg-white sm:rounded-2xl border-none shadow-2xl">
+          <DialogHeader className="p-5 border-b border-[#F2F2F2] bg-transparent shrink-0">
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-lg font-bold flex items-center gap-3 text-[#1E5128]">
+                <div className="bg-[#76BA1B]/10 p-2 rounded-xl border border-[#76BA1B]/20">
+                  <MapPin className="w-5 h-5 text-[#76BA1B]" />
+                </div>
+                Localização: {visitaParaMapa?.NOMEPARC}
+              </DialogTitle>
+              <Button variant="ghost" size="icon" className="sm:hidden" onClick={() => setModalMapaVisita(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 relative z-0">
+            {typeof window !== 'undefined' && visitaParaMapa && visitaParaMapa.LATITUDE && visitaParaMapa.LONGITUDE ? (
+              <MapContainer
+                center={[visitaParaMapa.LATITUDE, visitaParaMapa.LONGITUDE]}
+                zoom={15}
+                style={{ height: '100%', width: '100%' }}
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <Marker position={[visitaParaMapa.LATITUDE, visitaParaMapa.LONGITUDE]}>
+                  <Popup>
+                    <div className="p-1">
+                      <p className="font-bold text-sm">{visitaParaMapa.NOMEPARC}</p>
+                      <p className="text-xs text-muted-foreground">{visitaParaMapa.ENDERECO}, {visitaParaMapa.NUMERO}</p>
+                      <p className="text-xs text-muted-foreground">{visitaParaMapa.CIDADE}/{visitaParaMapa.UF}</p>
+                    </div>
+                  </Popup>
+                </Marker>
+              </MapContainer>
+            ) : (
+              <div className="absolute inset-0 bg-slate-100/80 backdrop-blur-sm flex items-center justify-center z-10">
+                <div className="text-center p-6">
+                  <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+                  <h3 className="font-bold text-slate-800">Coordenadas não encontradas</h3>
+                  <p className="text-sm text-slate-600 mt-1 max-w-[250px]">
+                    Cadastre a longitude e latitude para ver o mapa.
+                  </p>
+                  <Button
+                    className="mt-4 bg-[#76BA1B] hover:bg-[#1E5128] text-white rounded-xl shadow-md transition-all active:scale-[0.98]"
+                    onClick={() => {
+                      if (visitaParaMapa) {
+                        const address = `${visitaParaMapa.ENDERECO}, ${visitaParaMapa.NUMERO}, ${visitaParaMapa.CIDADE} - ${visitaParaMapa.UF}`
+                        window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`, '_blank')
+                      }
+                    }}
+                  >
+                    Ver no Google Maps
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="p-4 bg-white border-t flex flex-row items-center justify-between gap-4">
+            <div className="flex flex-col flex-1 gap-1 min-w-0">
+              <p className="text-xs font-bold text-slate-500 uppercase">Endereço Completo</p>
+              <p className="text-sm text-slate-800 truncate">
+                {visitaParaMapa?.ENDERECO}, {visitaParaMapa?.NUMERO} - {visitaParaMapa?.CIDADE}/{visitaParaMapa?.UF}
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => setModalMapaVisita(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Modal de Atividade Avulsa */}
+      <Dialog open={modalAtividade} onOpenChange={setModalAtividade}>
+        <DialogContent className="sm:max-w-md bg-white rounded-2xl border-none shadow-2xl p-0">
+          <DialogHeader className="p-5 border-b border-[#F2F2F2] bg-transparent">
+            <DialogTitle className="flex items-center gap-3 text-xl font-bold text-[#1E5128]">
+              <div className="bg-[#76BA1B]/10 p-2 rounded-xl border border-[#76BA1B]/20">
+                <Plus className="w-5 h-5 text-[#76BA1B]" />
+              </div>
+              Registrar Atividade
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 px-6 py-5">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-slate-500 uppercase">Tipo</Label>
+              <Select
+                value={novaAtividadeForm.tipo}
+                onValueChange={(v) => setNovaAtividadeForm(prev => ({ ...prev, tipo: v }))}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NOTA">Nota/Observação</SelectItem>
+                  <SelectItem value="LIGACAO">Ligação</SelectItem>
+                  <SelectItem value="EMAIL">E-mail</SelectItem>
+                  <SelectItem value="REUNIAO">Reunião</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-slate-500 uppercase">Título</Label>
+              <Input
+                value={novaAtividadeForm.titulo}
+                onChange={(e) => setNovaAtividadeForm(prev => ({ ...prev, titulo: e.target.value }))}
+                placeholder="Ex: Conversa sobre novos produtos"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-slate-500 uppercase">Descrição</Label>
+              <Textarea
+                value={novaAtividadeForm.descricao}
+                onChange={(e) => setNovaAtividadeForm(prev => ({ ...prev, descricao: e.target.value }))}
+                placeholder="Detalhes da atividade..."
+                className="min-h-[100px]"
+              />
+            </div>
+          </div>
+          <DialogFooter className="p-5 border-t border-[#F2F2F2] bg-white flex flex-col sm:flex-row gap-3">
+            <Button variant="outline" onClick={() => setModalAtividade(false)} className="rounded-xl border-[#F2F2F2] hover:bg-slate-50">Cancelar</Button>
+            <Button onClick={criarAtividadeVinculada} className="rounded-xl bg-[#76BA1B] hover:bg-[#1E5128] text-white shadow-md transition-all active:scale-[0.98]">Salvar Atividade</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

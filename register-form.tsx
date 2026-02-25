@@ -1,40 +1,30 @@
 "use client"
 
 import type React from "react"
-
-import { useState, useEffect } from "react"
-import { SplashScreen } from "./splash-screen"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import Image from "next/image"
-import { useIsMobile } from "@/hooks/use-mobile"
-import { ArrowLeft } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
 export default function RegisterForm() {
   const router = useRouter()
-  const isMobile = useIsMobile()
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [showSplash, setShowSplash] = useState(false)
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    if (name === 'name') {
-      setName(value);
-    } else if (name === 'email') {
-      setEmail(value);
-    } else if (name === 'password') {
-      setPassword(value);
-    } else if (name === 'confirmPassword') {
-      setConfirmPassword(value);
-    }
+    if (name === 'name') setName(value);
+    else if (name === 'email') setEmail(value);
+    else if (name === 'password') setPassword(value);
+    else if (name === 'confirmPassword') setConfirmPassword(value);
     setError("");
   }
 
@@ -42,7 +32,6 @@ export default function RegisterForm() {
     e.preventDefault();
     setError("");
 
-    // Validation
     if (password !== confirmPassword) {
       setError("As senhas não coincidem")
       return
@@ -63,17 +52,10 @@ export default function RegisterForm() {
       funcao: 'Vendedor'
     };
 
-    console.log('📤 Enviando dados para registro:', {
-      ...payload,
-      senha: '***'
-    });
-
     try {
       const response = await fetch('/api/usuarios/register', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
 
@@ -82,222 +64,154 @@ export default function RegisterForm() {
         throw new Error(data.error || 'Erro ao realizar cadastro')
       }
 
-      // Redirecionar para a página de login
       alert("Cadastro realizado com sucesso! Aguarde a aprovação do administrador para fazer login.")
       router.push("/")
     } catch (err: any) {
       setError(err.message || "Erro ao realizar cadastro. Tente novamente.")
-      console.error(err)
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  // Mobile Layout
-  if (isMobile) {
-    if (showSplash) {
-      return <SplashScreen onFinish={() => setShowSplash(false)} duration={2000} />
-    }
-    return (
-      <div className="min-h-screen bg-white">
-        <div className="h-screen flex flex-col items-center justify-center p-6">
-          {/* Logo Mobile */}
-          <div className="mb-6">
-            <div className="relative w-32 h-32 mx-auto">
+  return (
+    <div className="min-h-screen w-full flex bg-white flex-col lg:flex-row-reverse font-sans">
+      {/* Esquerda (Na visualização Reverse, fica do lado direito visualmente): Branding & Identidade visual */}
+      <div className="hidden lg:flex lg:w-1/2 bg-[#1E5128] flex-col justify-between p-12 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-bl from-[#76BA1B]/20 to-transparent z-0 pointer-events-none" />
+        <div className="absolute -top-[20%] -left-[20%] w-[70%] h-[70%] rounded-full bg-[#76BA1B]/20 blur-[120px] z-0 pointer-events-none" />
+
+        <div className="flex-1 flex flex-col justify-center relative z-10 w-full pt-16">
+          <div className="max-w-lg mx-auto w-full flex flex-col items-center">
+            <div className="flex justify-center w-full mb-6 relative">
               <Image
-                src="/image 4.png"
-                alt="Sankhya Logo"
-                fill
+                src="/Logo_Final.png"
+                alt="PredictSales Logo"
+                width={160}
+                height={48}
                 className="object-contain"
                 priority
               />
             </div>
+
+            <div className="text-white space-y-4 w-full">
+              <h1 className="text-3xl xl:text-4xl font-bold tracking-tight font-montserrat leading-snug text-center drop-shadow-sm">
+                Junte-se à revolução em vendas preditivas.
+              </h1>
+              <p className="text-base xl:text-lg text-[#F2F2F2]/90 font-light leading-relaxed text-center max-w-md mx-auto">
+                Solicite seu acesso e descubra como a inteligência artificial pode transformar os resultados da sua equipe.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative z-10 text-sm text-[#F2F2F2]/60 font-medium text-center lg:text-left">
+          &copy; {new Date().getFullYear()} PredictSales. Todos os direitos reservados.
+        </div>
+      </div>
+
+      {/* Direita (Visualmente esquerda): Formulário Clean Card */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative bg-white">
+        <div className="w-full max-w-md bg-white p-8 sm:p-10 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] sm:border sm:border-gray-100 flex flex-col justify-center min-h-[500px]">
+
+          <div className="space-y-3 mb-8 text-center sm:text-left">
+            <div className="lg:hidden flex justify-center mb-8">
+              <Image
+                src="/Logo_Final.png"
+                alt="PredictSales Logo"
+                width={160}
+                height={50}
+                className="object-contain"
+                priority
+              />
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#121212] font-montserrat tracking-tight">Criar uma conta</h2>
+            <p className="text-[#121212]/60 text-sm">Preencha seus dados para solicitar acesso.</p>
           </div>
 
-          {/* Título */}
-          <h1 className="text-xl font-semibold text-gray-800 mb-6">Crie sua conta</h1>
-
-          {/* Formulário */}
-          <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
-            <div className="space-y-1">
-              <Label htmlFor="name" className="text-sm text-gray-600">Nome</Label>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="name" className="text-xs font-semibold text-[#1E5128] uppercase tracking-wider">Nome Completo</Label>
               <Input
                 id="name"
                 name="name"
                 type="text"
-                placeholder="Nome"
+                placeholder="Seu nome"
                 value={name}
                 onChange={handleChange}
-                className="h-11 bg-gray-50 border-gray-200 rounded-lg"
                 required
+                className="h-11 bg-[#F2F2F2] border-transparent focus-visible:ring-[#76BA1B]/30 focus-visible:border-[#76BA1B] rounded-xl transition-all text-[#121212]"
               />
             </div>
 
-            <div className="space-y-1">
-              <Label htmlFor="email" className="text-sm text-gray-600">Email</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-xs font-semibold text-[#1E5128] uppercase tracking-wider">Email Corporativo</Label>
               <Input
                 id="email"
                 name="email"
                 type="email"
-                placeholder="Email"
+                placeholder="nome@empresa.com.br"
                 value={email}
                 onChange={handleChange}
-                className="h-11 bg-gray-50 border-gray-200 rounded-lg"
                 required
+                className="h-11 bg-[#F2F2F2] border-transparent focus-visible:ring-[#76BA1B]/30 focus-visible:border-[#76BA1B] rounded-xl transition-all text-[#121212]"
               />
             </div>
 
-            <div className="space-y-1">
-              <Label htmlFor="password" className="text-sm text-gray-600">Senha</Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                placeholder="Senha"
-                value={password}
-                onChange={handleChange}
-                className="h-11 bg-gray-50 border-gray-200 rounded-lg"
-                required
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="password" className="text-xs font-semibold text-[#1E5128] uppercase tracking-wider">Senha</Label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={handleChange}
+                  required
+                  className="h-11 bg-[#F2F2F2] border-transparent focus-visible:ring-[#76BA1B]/30 focus-visible:border-[#76BA1B] rounded-xl transition-all text-[#121212]"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="confirmPassword" className="text-xs font-semibold text-[#1E5128] uppercase tracking-wider">Confirmar</Label>
+                <Input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={handleChange}
+                  required
+                  className="h-11 bg-[#F2F2F2] border-transparent focus-visible:ring-[#76BA1B]/30 focus-visible:border-[#76BA1B] rounded-xl transition-all text-[#121212]"
+                />
+              </div>
             </div>
 
-            <div className="space-y-1">
-              <Label htmlFor="confirmPassword" className="text-sm text-gray-600">Confirmar senha</Label>
-              <Input
-                id="confirmPassword"
-                name="confirmPassword"
-                type="password"
-                placeholder="Confirmar senha"
-                value={confirmPassword}
-                onChange={handleChange}
-                className="h-11 bg-gray-50 border-gray-200 rounded-lg"
-                required
-              />
-            </div>
-
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-red-500 font-medium py-1">{error}</p>}
 
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="w-full h-11 rounded-lg font-medium text-white"
-              style={{ backgroundColor: '#70CA71' }}
+              className="w-full h-12 mt-6 bg-[#76BA1B] hover:bg-[#1E5128] text-white font-bold font-montserrat rounded-xl shadow-lg shadow-[#76BA1B]/20 transition-all hover:shadow-[#1E5128]/30 active:scale-[0.98] flex items-center justify-center gap-2 text-base"
             >
-              {isSubmitting ? "Cadastrando..." : "Cadastrar"}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Solicitando...
+                </>
+              ) : (
+                "Solicitar Acesso"
+              )}
             </Button>
           </form>
 
-          {/* Link para login */}
-          <div className="mt-6 text-center text-sm">
-            <span className="text-gray-600">Já tem uma conta? </span>
-            <Link href="/" className="font-medium" style={{ color: '#70CA71' }}>
-              Entrar
+          <div className="mt-8 text-center text-sm font-medium">
+            <span className="text-gray-500">Já tem uma conta? </span>
+            <Link href="/" className="text-[#2ECC71] hover:text-[#27ae60] transition-colors">
+              Fazer login
             </Link>
           </div>
         </div>
-      </div>
-    )
-  }
-
-  // Desktop Layout (original)
-  if (showSplash) {
-    return <SplashScreen onFinish={() => setShowSplash(false)} duration={2000} />
-  }
-  return (
-    <div className="w-full max-w-md bg-card rounded-lg shadow-xl p-8">
-      <div className="flex flex-col items-center mb-8">
-        <div className="mb-4">
-          <div className="relative w-48 h-48 mx-auto">
-            <Image
-              src="/image 4.png"
-              alt="Sankhya Logo"
-              fill
-              className="object-contain"
-              priority
-            />
-          </div>
-        </div>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="name" className="text-sm text-muted-foreground">
-            Nome Completo
-          </Label>
-          <Input
-            id="name"
-            name="name"
-            type="text"
-            value={name}
-            onChange={handleChange}
-            className="bg-background border-input"
-            required
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="email" className="text-sm text-muted-foreground">
-            E-mail
-          </Label>
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            value={email}
-            onChange={handleChange}
-            className="bg-background border-input"
-            required
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="password" className="text-sm text-muted-foreground">
-            Senha
-          </Label>
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            value={password}
-            onChange={handleChange}
-            className="bg-background border-input"
-            required
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="confirmPassword" className="text-sm text-muted-foreground">
-            Confirmar Senha
-          </Label>
-          <Input
-            id="confirmPassword"
-            name="confirmPassword"
-            type="password"
-            value={confirmPassword}
-            onChange={handleChange}
-            className="bg-background border-input"
-            required
-          />
-        </div>
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        <Button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium uppercase tracking-wide"
-        >
-          {isSubmitting ? "Cadastrando..." : "Cadastrar"}
-        </Button>
-      </form>
-
-      <div className="mt-6 text-center">
-        <p className="text-sm text-muted-foreground">
-          Já tem uma conta?{" "}
-          <Link href="/" className="text-primary hover:text-primary/90 font-medium">
-            Entrar
-          </Link>
-        </p>
       </div>
     </div>
   )

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -9,12 +9,23 @@ import { Card, CardContent } from "@/components/ui/card"
 import { EstoqueModal } from "@/components/estoque-modal"
 import { toast } from "sonner"
 import { OfflineDataService } from "@/lib/offline-data-service"; // Import OfflineDataService
+import { Eye } from "lucide-react"
+import { ProdutoDetalhesModal } from "@/components/produto-detalhes-modal"
+import { Button } from "@/components/ui/button"
+import { resolveBestPolicy, PolicyContext } from "@/lib/policy-engine"
+import { PoliticaComercial } from "@/lib/politicas-comerciais-service"
 
 interface ProdutoSelectorModalProps {
   isOpen: boolean
   onClose: () => void
-  onConfirm: (produto: any, preco: number, quantidade: number) => void
+  onConfirm: (produto: any, preco: number, quantidade: number, tabela?: string, desconto?: number, controle?: string, localEstoque?: number, maxDesconto?: number, maxAcrescimo?: number, precoBase?: number) => void
   titulo?: string
+  idEmpresa?: string | number
+  codParc?: string | number
+  codEmp?: number
+  codVend?: number
+  codTipVenda?: number
+  codEquipe?: number
 }
 
 interface TabelaPreco {
@@ -30,6 +41,9 @@ interface Produto {
   CODPROD?: string;
   DESCRPROD?: string;
   MARCA?: string;
+  CODMARCA?: number;
+  CODGRUPOPROD?: number;
+  ATIVO?: string;
   AD_VLRUNIT?: number;
   VLRVENDA?: number; // Adicionado para buscar preço base diretamente do produto
   PRECO?: number; // Adicionado para buscar preço base diretamente do produto
@@ -39,7 +53,13 @@ export function ProdutoSelectorModal({
   isOpen,
   onClose,
   onConfirm,
-  titulo = "Adicionar Produto"
+  titulo = "Adicionar Produto",
+  idEmpresa,
+  codParc,
+  codEmp,
+  codVend,
+  codTipVenda,
+  codEquipe
 }: ProdutoSelectorModalProps) {
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -50,6 +70,10 @@ export function ProdutoSelectorModal({
   const [tabelasPreco, setTabelasPreco] = useState<TabelaPreco[]>([])
   const [tabelaSelecionada, setTabelaSelecionada] = useState<string>('0')
   const [loadingPreco, setLoadingPreco] = useState(false); // State to track price loading
+  const [showDetalhesModal, setShowDetalhesModal] = useState(false)
+  const [produtoDetalhes, setProdutoDetalhes] = useState<Produto | null>(null)
+  const [maxDescontoPolitica, setMaxDescontoPolitica] = useState<number | undefined>(undefined)
+  const [maxAcrescimoPolitica, setMaxAcrescimoPolitica] = useState<number | undefined>(undefined)
 
 
   // Função para normalizar texto (remover acentos)
@@ -151,6 +175,68 @@ export function ProdutoSelectorModal({
         toast.error("Selecione uma tabela de preço antes de adicionar produtos")
         setIsLoading(false)
         return
+      }
+
+      // === MOTOR DE POLÍTICAS ===
+      if (codEmp && codParc) {
+        try {
+          const politicas = await OfflineDataService.getPoliticas(Number(codEmp));
+          if (politicas && politicas.length > 0) {
+            const parceiros = await OfflineDataService.getParceiros({ search: String(codParc) });
+            const parceiro = parceiros.find((p: any) => String(p.CODPARC) === String(codParc));
+
+            if (parceiro) {
+              const context: PolicyContext = {
+                codEmp: Number(codEmp), // STRICTLY use codEmp prop as requested
+                codParc: Number(codParc),
+                uf: parceiro.UF,
+                codCid: parceiro.CODCID,
+                codBai: parceiro.CODBAIRRO || parceiro.CODBAI,
+                codReg: parceiro.CODREG,
+                codProd: Number(produto.CODPROD),
+                marca: produto.CODMARCA || produto.MARCA,
+                codVend: codVend ? Number(codVend) : Number(parceiro.CODVEND || 0),
+                codEquipe: codEquipe ? Number(codEquipe) : undefined,
+                grupo: Number(produto.CODGRUPOPROD || 0),
+                codTipVenda: codTipVenda ? Number(codTipVenda) : undefined
+              };
+
+              const melhorPolitica = resolveBestPolicy(politicas, context);
+              if (melhorPolitica) {
+                console.log('🏆 [PolicyEngine] Melhor política:', melhorPolitica.NOME_POLITICA);
+
+                if (melhorPolitica.RESULT_NUTAB) {
+                  setTabelaSelecionada(String(melhorPolitica.RESULT_NUTAB));
+                  console.log('📉 [PolicyEngine] Forçando tabela:', melhorPolitica.RESULT_NUTAB);
+                }
+                // else {
+                //   Não usar fallback de parceiro. Se a política não tiver tabela, user deve selecionar ou não tem preço.
+                // }
+
+                if (melhorPolitica.RESULT_PERCDESCONTO_MAX !== undefined && melhorPolitica.RESULT_PERCDESCONTO_MAX !== null) {
+                  setMaxDescontoPolitica(melhorPolitica.RESULT_PERCDESCONTO_MAX);
+                } else {
+                  setMaxDescontoPolitica(undefined);
+                }
+
+                if (melhorPolitica.RESULT_PERCACIMA_MAX !== undefined && melhorPolitica.RESULT_PERCACIMA_MAX !== null) {
+                  setMaxAcrescimoPolitica(melhorPolitica.RESULT_PERCACIMA_MAX);
+                } else {
+                  setMaxAcrescimoPolitica(undefined);
+                }
+              } else {
+                console.warn('⚠️ Nenhuma política encontrada. A tabela deve ser selecionada manualmente ou via prop.');
+                // Não reverter para defaults do parceiro aqui.
+                setMaxDescontoPolitica(undefined);
+                setMaxAcrescimoPolitica(undefined);
+              }
+            } else {
+              // Sem parceiro para resolver contexto
+            }
+          }
+        } catch (e) {
+          console.error('Erro política:', e);
+        }
       }
 
       let estoqueTotal = 0;
@@ -266,14 +352,21 @@ export function ProdutoSelectorModal({
     }
   }
 
-  const handleConfirmarEstoque = (produto: any, preco: number, quantidade: number) => {
+  const handleConfirmarEstoque = (produto: any, preco: number, quantidade: number, tabela?: string, desconto?: number, controle?: string, localEstoque?: number, maxDesconto?: number, maxAcrescimo?: number, precoBase?: number) => {
     setShowEstoqueModal(false)
     setProdutoSelecionado(null)
     setProdutoEstoque(0)
     setProdutoPreco(0)
-    onConfirm(produto, preco, quantidade)
+    // Pass table and other details to parent including precoBase
+    onConfirm(produto, preco, quantidade, tabelaSelecionada, desconto, controle, localEstoque, maxDesconto || maxDescontoPolitica, maxAcrescimo || maxAcrescimoPolitica, precoBase)
     setProdutos([])
     onClose()
+  }
+
+  const abrirDetalhes = (e: React.MouseEvent, produto: Produto) => {
+    e.stopPropagation()
+    setProdutoDetalhes(produto)
+    setShowDetalhesModal(true)
   }
 
   const handleCancelarEstoque = () => {
@@ -492,6 +585,9 @@ export function ProdutoSelectorModal({
         <DialogContent className="max-w-2xl max-h-[80vh]" data-produto-selector style={{ zIndex: 50 }}>
           <DialogHeader>
             <DialogTitle>{titulo}</DialogTitle>
+            <DialogDescription className="hidden">
+              Pesquise e selecione um produto para adicionar ao pedido.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             {tabelasPreco.length > 0 ? (
@@ -557,13 +653,21 @@ export function ProdutoSelectorModal({
                     onClick={() => handleSelecionarProduto(produto)}
                   >
                     <CardContent className="p-3">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{produto.CODPROD} - {produto.DESCRPROD}</p>
+                      <div className="flex justify-between items-center gap-2">
+                        <div className="flex-1 min-w-0" onClick={() => handleSelecionarProduto(produto)}>
+                          <p className="font-medium text-sm truncate">{produto.CODPROD} - {produto.DESCRPROD}</p>
                           {produto.MARCA && (
                             <p className="text-xs text-muted-foreground mt-1">Marca: {produto.MARCA}</p>
                           )}
                         </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50 shrink-0"
+                          onClick={(e) => abrirDetalhes(e, produto)}
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -574,6 +678,17 @@ export function ProdutoSelectorModal({
         </DialogContent>
       </Dialog>
 
+      {produtoDetalhes && (
+        <ProdutoDetalhesModal
+          isOpen={showDetalhesModal}
+          onClose={() => {
+            setShowDetalhesModal(false)
+            setProdutoDetalhes(null)
+          }}
+          produto={produtoDetalhes}
+        />
+      )}
+
       {showEstoqueModal && produtoSelecionado && (
         <EstoqueModal
           isOpen={showEstoqueModal}
@@ -582,6 +697,8 @@ export function ProdutoSelectorModal({
           onConfirm={handleConfirmarEstoque}
           estoqueTotal={produtoEstoque}
           preco={produtoPreco}
+          maxDesconto={maxDescontoPolitica}
+          maxAcrescimo={maxAcrescimoPolitica}
         />
       )}
     </>
